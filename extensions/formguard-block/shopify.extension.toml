@@ -1,0 +1,10 @@
+api_version = "2026-04"
+
+[[extensions]]
+name = "FormGuard Spam Blocker"
+handle = "formguard-block"
+uid = "3d94b21b-51bd-4ef3-8d8f-b656448f43bc71b17c1b"
+type = "theme"
+
+[extensions.default]
+enabled = true

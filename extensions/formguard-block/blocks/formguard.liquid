@@ -1,0 +1,13 @@
+<div id="formguard-wrapper" style="display:none;"
+  data-proxy-url="{{ shop.url }}/apps/formguard"
+  {{ block.shopify_attributes }}>
+</div>
+
+{% schema %}
+{
+  "name": "FormGuard Spam Blocker",
+  "target": "body",
+  "javascript": "formguard.js",
+  "settings": []
+}
+{% endschema %}

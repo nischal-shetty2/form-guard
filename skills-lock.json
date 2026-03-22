@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "shopify": {
+      "source": "mrgoonie/claudekit-skills",
+      "sourceType": "github",
+      "computedHash": "04f6b1083bacd7f9f7353288212791b556dec4decc5e66d55f7c079faa354e1a"
+    }
+  }
+}
