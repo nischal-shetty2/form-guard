@@ -226,7 +226,8 @@ export default function Index() {
                           "var(--p-color-bg-surface-secondary, #e4e5e7)",
                       }}
                     >
-                      {reason}: {count}
+                      {reason.charAt(0).toUpperCase() + reason.slice(1)}:{" "}
+                      {count}
                     </span>
                   ))}
                 </div>
@@ -251,14 +252,15 @@ export default function Index() {
 
       <s-section heading="Blocked Keywords">
         <s-paragraph>
-          Messages containing these keywords will be blocked as spam.
+          Messages containing these words, phrases, or email addresses will be
+          blocked as spam.
         </s-paragraph>
         <s-stack direction="inline" gap="base">
           <input
             type="text"
             value={newKeyword}
             onChange={(e) => setNewKeyword(e.target.value)}
-            placeholder="Enter keyword..."
+            placeholder="e.g. buy now, free offer, spam@example.com"
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -271,8 +273,17 @@ export default function Index() {
               borderRadius: "8px",
               fontSize: "14px",
               lineHeight: "20px",
-              minWidth: "200px",
+              minWidth: "240px",
+              outline: "none",
             }}
+            onFocus={(e) =>
+              (e.target.style.borderColor =
+                "var(--p-color-border-interactive, #005bd3)")
+            }
+            onBlur={(e) =>
+              (e.target.style.borderColor =
+                "var(--p-color-border, #ccc)")
+            }
           />
           <s-button onClick={handleAddKeyword}>Add</s-button>
         </s-stack>
@@ -288,7 +299,10 @@ export default function Index() {
         {keywords.length === 0 ? (
           <div style={{ marginTop: "12px" }}>
             <s-paragraph>
-              <s-text>No blocked keywords yet.</s-text>
+              <s-text>
+                No blocked keywords yet. Add words, phrases, or email addresses
+                above to start filtering spam.
+              </s-text>
             </s-paragraph>
           </div>
         ) : (
@@ -316,19 +330,27 @@ export default function Index() {
                 {keyword.word}
                 <button
                   onClick={() => handleRemoveKeyword(keyword.id)}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background =
+                      "var(--p-color-bg-surface-tertiary, #ddd)")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.background = "none")
+                  }
                   style={{
                     background: "none",
                     border: "none",
                     cursor: "pointer",
-                    padding: "2px 4px",
-                    fontSize: "14px",
+                    padding: "2px 6px",
+                    fontSize: "13px",
                     color: "var(--p-color-text-secondary, #666)",
                     lineHeight: 1,
                     borderRadius: "50%",
+                    transition: "background 0.15s ease",
                   }}
                   aria-label={`Remove ${keyword.word}`}
                 >
-                  x
+                  ✕
                 </button>
               </span>
             ))}

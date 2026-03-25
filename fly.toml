@@ -7,6 +7,7 @@ primary_region = "sjc"
   NODE_ENV = "production"
   DATABASE_URL = "file:/data/formguard.sqlite"
   PORT = "3000"
+  HOST = "0.0.0.0"
 
 [http_service]
   internal_port = 3000

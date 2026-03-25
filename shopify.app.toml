@@ -2,12 +2,11 @@
 
 client_id = "f0bab87a3b17e00e8a86a733181a3d56"
 name = "FormGuard"
-application_url = "https://example.com"
+application_url = "https://formguard-spam-blocker.fly.dev"
 embedded = true
 
 [build]
 automatically_update_urls_on_dev = true
-include_config_on_deploy = true
 
 [webhooks]
 api_version = "2026-04"
@@ -31,9 +30,9 @@ shop_deletion_url = "/webhooks/shop/redact"
 scopes = ""
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://formguard-spam-blocker.fly.dev/api/auth" ]
 
 [app_proxy]
-url = "https://example.com/api/formguard"
+url = "https://formguard-spam-blocker.fly.dev/api/formguard"
 subpath = "formguard"
 prefix = "apps"
