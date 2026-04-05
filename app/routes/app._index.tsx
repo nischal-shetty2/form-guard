@@ -164,6 +164,45 @@ export default function Index() {
         {enabled ? "Disable Protection" : "Enable Protection"}
       </s-button>
 
+      <s-section heading="Setup Guide">
+        <s-stack direction="block" gap="base">
+          <s-paragraph>
+            <strong>Step 1:</strong> Enable spam protection using the button
+            above.
+          </s-paragraph>
+          <s-paragraph>
+            <strong>Step 2:</strong> Add the FormGuard app embed to your theme.
+            Click the button below to open the theme editor, then ensure the
+            FormGuard toggle is turned on.
+          </s-paragraph>
+          <s-paragraph>
+            <strong>Step 3:</strong> (Optional) Add blocked keywords below to
+            filter specific words, phrases, or email addresses.
+          </s-paragraph>
+          <div style={{ marginTop: "8px" }}>
+            <s-button
+              variant="primary"
+              onClick={() =>
+                open(
+                  "shopify:admin/themes/current/editor?context=apps",
+                  "_top",
+                )
+              }
+            >
+              Open Theme Editor
+            </s-button>
+          </div>
+          <s-paragraph>
+            <s-text variant="subdued">
+              FormGuard works automatically once enabled. It adds invisible
+              protection to your contact form — no changes to your theme are
+              needed. To remove it, simply toggle the app embed off in the theme
+              editor.
+            </s-text>
+          </s-paragraph>
+        </s-stack>
+      </s-section>
+
       <s-section heading="Spam Protection">
         <s-paragraph>
           FormGuard protects your contact form with 3 layers: honeypot field,

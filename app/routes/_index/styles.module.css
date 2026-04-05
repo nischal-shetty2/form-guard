@@ -77,10 +77,11 @@
 /* Screenshots */
 .screenshots {
   display: flex;
-  gap: 1.5rem;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
   padding: 2rem 1.5rem 3rem;
-  max-width: 900px;
+  max-width: 780px;
   margin: 0 auto;
 }
 
@@ -88,20 +89,17 @@
   border-radius: 12px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
   border: 1px solid #e5e5e5;
-  object-fit: cover;
-  object-position: center;
+  width: 100%;
+  height: auto;
 }
 
 .screenshotLarge {
   composes: screenshot;
-  width: 55%;
-  max-height: 400px;
 }
 
 .screenshotSmall {
   composes: screenshot;
-  width: 40%;
-  max-height: 400px;
+  max-width: 480px;
 }
 
 /* Features */

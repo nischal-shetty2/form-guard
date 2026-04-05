@@ -62,11 +62,6 @@ export default function App() {
           alt="FormGuard admin dashboard showing spam stats and blocked keywords"
           className={styles.screenshotLarge}
         />
-        <img
-          src="/blocked1.png"
-          alt="Contact form with spam submission being blocked"
-          className={styles.screenshotSmall}
-        />
       </section>
 
       {/* Features */}
@@ -95,6 +90,15 @@ export default function App() {
             is stopped before it reaches your inbox.
           </p>
         </div>
+      </section>
+
+      {/* Blocked form demo */}
+      <section className={styles.screenshots}>
+        <img
+          src="/blocked1.png"
+          alt="Contact form with spam submission being blocked"
+          className={styles.screenshotSmall}
+        />
       </section>
 
       {/* How it works */}
