@@ -193,47 +193,62 @@ export default function Index() {
         </s-paragraph>
       </s-section>
 
-      <s-section
-        heading="Setup Guide"
-        collapsible
-        collapsed
-      >
-        <s-stack direction="block" gap="base">
-          <s-paragraph>
-            <strong>Step 1:</strong> Click the{" "}
-            <strong>{enabled ? "Disable" : "Enable"} Protection</strong> button
-            in the top-right corner to toggle spam protection.
-          </s-paragraph>
-          <s-paragraph>
-            <strong>Step 2:</strong> Add the FormGuard app embed to your theme.
-            Open the theme editor below and ensure the FormGuard toggle is
-            turned on.
-          </s-paragraph>
-          <div style={{ marginTop: "4px", marginBottom: "4px" }}>
-            <s-button
-              onClick={() =>
-                open(
-                  "shopify:admin/themes/current/editor?context=apps",
-                  "_top",
-                )
-              }
-            >
-              Open Theme Editor
-            </s-button>
+      <s-section>
+        <details>
+          <summary
+            style={{
+              cursor: "pointer",
+              fontWeight: 650,
+              fontSize: "14px",
+              listStyle: "none",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
+            <span style={{ fontSize: "10px" }}>&#9654;</span> Setup Guide
+          </summary>
+          <div style={{ marginTop: "12px" }}>
+            <s-stack direction="block" gap="base">
+              <s-paragraph>
+                <strong>Step 1:</strong> Click the{" "}
+                <strong>
+                  {enabled ? "Disable" : "Enable"} Protection
+                </strong>{" "}
+                button in the top-right corner to toggle spam protection.
+              </s-paragraph>
+              <s-paragraph>
+                <strong>Step 2:</strong> Add the FormGuard app embed to your
+                theme. Open the theme editor below and ensure the FormGuard
+                toggle is turned on.
+              </s-paragraph>
+              <div style={{ marginTop: "4px", marginBottom: "4px" }}>
+                <s-button
+                  onClick={() =>
+                    open(
+                      "shopify:admin/themes/current/editor?context=apps",
+                      "_top",
+                    )
+                  }
+                >
+                  Open Theme Editor
+                </s-button>
+              </div>
+              <s-paragraph>
+                <strong>Step 3:</strong> (Optional) Add blocked keywords below
+                to filter specific words, phrases, or email addresses.
+              </s-paragraph>
+              <s-paragraph>
+                <s-text variant="subdued">
+                  FormGuard works automatically once enabled. It adds invisible
+                  protection to your contact form — no changes to your theme
+                  are needed. To remove it, toggle the app embed off in the
+                  theme editor.
+                </s-text>
+              </s-paragraph>
+            </s-stack>
           </div>
-          <s-paragraph>
-            <strong>Step 3:</strong> (Optional) Add blocked keywords below to
-            filter specific words, phrases, or email addresses.
-          </s-paragraph>
-          <s-paragraph>
-            <s-text variant="subdued">
-              FormGuard works automatically once enabled. It adds invisible
-              protection to your contact form — no changes to your theme are
-              needed. To remove it, toggle the app embed off in the theme
-              editor.
-            </s-text>
-          </s-paragraph>
-        </s-stack>
+        </details>
       </s-section>
 
       <s-section heading="Last 7 Days" slot="aside">
