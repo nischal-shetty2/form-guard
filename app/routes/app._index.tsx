@@ -206,7 +206,20 @@ export default function Index() {
               gap: "6px",
             }}
           >
-            <span style={{ fontSize: "10px" }}>&#9654;</span> Setup Guide
+            <span
+              style={{
+                fontSize: "10px",
+                display: "inline-block",
+                transition: "transform 0.2s ease",
+              }}
+              className="setup-arrow"
+            >
+              &#9654;
+            </span>{" "}
+            Setup Guide
+            <style>{`
+              details[open] .setup-arrow { transform: rotate(90deg); }
+            `}</style>
           </summary>
           <div style={{ marginTop: "12px" }}>
             <s-stack direction="block" gap="base">
