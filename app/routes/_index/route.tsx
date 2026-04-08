@@ -106,15 +106,6 @@ export default function App() {
         </div>
       </section>
 
-      {/* Blocked form demo */}
-      <section className={styles.screenshots}>
-        <img
-          src="/blocked1.png"
-          alt="Contact form with spam submission being blocked"
-          className={styles.screenshotSmall}
-        />
-      </section>
-
       {/* How it works */}
       <section className={styles.howSection}>
         <h2 className={styles.howTitle}>Up and running in 60 seconds</h2>
