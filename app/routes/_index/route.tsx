@@ -92,6 +92,20 @@ export default function App() {
         </div>
       </section>
 
+      {/* Video demo */}
+      <section className={styles.videoSection}>
+        <h2 className={styles.videoTitle}>See it in action</h2>
+        <div className={styles.videoWrapper}>
+          <iframe
+            src="https://www.youtube.com/embed/_OeQXkoRNz8"
+            title="FormGuard demo"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            className={styles.videoIframe}
+          />
+        </div>
+      </section>
+
       {/* Blocked form demo */}
       <section className={styles.screenshots}>
         <img
