@@ -124,7 +124,7 @@ export default function App() {
       <footer className={styles.footer}>
         <ul className={styles.footerLinks}>
           <li><a href="/privacy">Privacy Policy</a></li>
-          <li><a href="mailto:nischal.shetty02@gmail.com">Support</a></li>
+          <li><a href="mailto:shettynick2@gmail.com">Support</a></li>
         </ul>
       </footer>
     </div>

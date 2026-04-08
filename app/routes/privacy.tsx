@@ -52,7 +52,7 @@ export default function Privacy() {
       <h2>Contact</h2>
       <p>
         For questions about this privacy policy, contact us at{" "}
-        <a href="mailto:nischal.shetty02@gmail.com">nischal.shetty02@gmail.com</a>.
+        <a href="mailto:shettynick2@gmail.com">shettynick2@gmail.com</a>.
       </p>
     </div>
   );
