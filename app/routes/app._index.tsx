@@ -159,7 +159,8 @@ export default function Index() {
       <s-button
         slot="primary-action"
         onClick={handleToggle}
-        variant={enabled ? "tertiary" : "primary"}
+        variant="primary"
+        tone={enabled ? "critical" : undefined}
       >
         {enabled ? "Disable Protection" : "Enable Protection"}
       </s-button>
