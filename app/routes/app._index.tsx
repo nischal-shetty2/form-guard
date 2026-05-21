@@ -14,20 +14,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  const enabledSetting = await prisma.setting.findUnique({
-    where: { shop_key: { shop, key: "enabled" } },
-  });
-  const enabled = !enabledSetting || enabledSetting.value !== "false";
-
-  const keywords = await prisma.keyword.findMany({
-    where: { shop },
-    orderBy: { id: "desc" },
-  });
-
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-  const [counts, spamReasons] = await Promise.all([
+  const [enabledSetting, keywords, counts, spamReasons] = await Promise.all([
+    prisma.setting.findUnique({
+      where: { shop_key: { shop, key: "enabled" } },
+    }),
+    prisma.keyword.findMany({
+      where: { shop },
+      orderBy: { id: "desc" },
+    }),
     prisma.spamEvent.groupBy({
       by: ["isSpam"],
       _count: true,
@@ -40,6 +37,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }),
   ]);
 
+  const enabled = !enabledSetting || enabledSetting.value !== "false";
   const spamCount = counts.find((c) => c.isSpam)?._count ?? 0;
   const validCount = counts.find((c) => !c.isSpam)?._count ?? 0;
 
@@ -253,7 +251,7 @@ export default function Index() {
                 to filter specific words, phrases, or email addresses.
               </s-paragraph>
               <s-paragraph>
-                <s-text variant="subdued">
+                <s-text color="subdued">
                   FormGuard works automatically once enabled. It adds invisible
                   protection to your contact form — no changes to your theme
                   are needed. To remove it, toggle the app embed off in the
