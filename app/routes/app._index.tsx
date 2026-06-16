@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type {
   ActionFunctionArgs,
   HeadersFunction,
@@ -17,37 +17,72 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-  const [enabledSetting, keywords, counts, spamReasons] = await Promise.all([
-    prisma.setting.findUnique({
-      where: { shop_key: { shop, key: "enabled" } },
-    }),
-    prisma.keyword.findMany({
-      where: { shop },
-      orderBy: { id: "desc" },
-    }),
-    prisma.spamEvent.groupBy({
-      by: ["isSpam"],
-      _count: true,
-      where: { shop, createdAt: { gte: sevenDaysAgo } },
-    }),
-    prisma.spamEvent.groupBy({
-      by: ["reason"],
-      _count: true,
-      where: { shop, isSpam: true, createdAt: { gte: sevenDaysAgo } },
-    }),
-  ]);
+  const [enabledSetting, lastSeenSetting, keywords, counts, spamReasons] =
+    await Promise.all([
+      prisma.setting.findUnique({
+        where: { shop_key: { shop, key: "enabled" } },
+      }),
+      prisma.setting.findUnique({
+        where: { shop_key: { shop, key: "lastSeen" } },
+      }),
+      prisma.keyword.findMany({
+        where: { shop },
+        orderBy: { id: "desc" },
+      }),
+      prisma.spamEvent.groupBy({
+        by: ["isSpam"],
+        _count: true,
+        where: { shop, createdAt: { gte: sevenDaysAgo } },
+      }),
+      prisma.spamEvent.groupBy({
+        by: ["reason"],
+        _count: true,
+        where: { shop, isSpam: true, createdAt: { gte: sevenDaysAgo } },
+      }),
+    ]);
 
   const enabled = !enabledSetting || enabledSetting.value !== "false";
   const spamCount = counts.find((c) => c.isSpam)?._count ?? 0;
   const validCount = counts.find((c) => !c.isSpam)?._count ?? 0;
 
+  // The embed pings the keywords endpoint whenever it finds a contact form, so
+  // a recent heartbeat means protection is genuinely live on the storefront —
+  // not just that the toggle is on. Recent form events are an equally strong
+  // signal (they only exist if the embed ran), so either confirms detection.
+  const SEEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+  const lastSeenMs = lastSeenSetting ? Number(lastSeenSetting.value) : 0;
+  const heartbeatRecent =
+    Number.isFinite(lastSeenMs) &&
+    lastSeenMs > 0 &&
+    Date.now() - lastSeenMs < SEEN_WINDOW_MS;
+  const detected = heartbeatRecent || spamCount + validCount > 0;
+
   const reasonCounts: Record<string, number> = {};
+  const keywordCounts: Record<string, number> = {};
   for (const row of spamReasons) {
-    const label = row.reason.startsWith("keyword:") ? "keyword" : row.reason;
-    reasonCounts[label] = (reasonCounts[label] || 0) + row._count;
+    if (row.reason.startsWith("keyword:")) {
+      reasonCounts.keyword = (reasonCounts.keyword || 0) + row._count;
+      const word = row.reason.slice("keyword:".length);
+      if (word) keywordCounts[word] = (keywordCounts[word] || 0) + row._count;
+    } else {
+      reasonCounts[row.reason] = (reasonCounts[row.reason] || 0) + row._count;
+    }
   }
 
-  return { enabled, keywords, spamCount, validCount, reasonCounts };
+  const topKeywords = Object.entries(keywordCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([word, count]) => ({ word, count }));
+
+  return {
+    enabled,
+    detected,
+    keywords,
+    spamCount,
+    validCount,
+    reasonCounts,
+    topKeywords,
+  };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -98,11 +133,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Index() {
-  const { enabled, keywords, spamCount, validCount, reasonCounts } =
+  const { enabled, detected, keywords, spamCount, validCount, reasonCounts, topKeywords } =
     useLoaderData<typeof loader>();
   const fetcher = useFetcher();
   const shopify = useAppBridge();
-  const [newKeyword, setNewKeyword] = useState("");
+  const keywordInputRef = useRef<HTMLInputElement | null>(null);
   const [keywordError, setKeywordError] = useState("");
 
   useEffect(() => {
@@ -114,7 +149,7 @@ export default function Index() {
           wasEnabled ? "Protection disabled" : "Protection enabled",
         );
       } else if (intent === "addKeyword") {
-        setNewKeyword("");
+        if (keywordInputRef.current) keywordInputRef.current.value = "";
         setKeywordError("");
         shopify.toast.show("Keyword added");
       } else if (intent === "removeKeyword") {
@@ -131,7 +166,7 @@ export default function Index() {
   };
 
   const handleAddKeyword = () => {
-    const word = newKeyword.trim().toLowerCase();
+    const word = (keywordInputRef.current?.value ?? "").trim().toLowerCase();
     if (!word) return;
     if (word.length < 2) {
       setKeywordError("Keyword must be at least 2 characters.");
@@ -151,6 +186,24 @@ export default function Index() {
       { method: "POST" },
     );
   };
+
+  // s-text-field doesn't accept an onKeyDown prop, so wire up Enter-to-submit
+  // with a native listener. keydown events bubble out of the component's shadow
+  // DOM to the host element, where we can catch them.
+  const submitRef = useRef(handleAddKeyword);
+  submitRef.current = handleAddKeyword;
+  useEffect(() => {
+    const el = keywordInputRef.current;
+    if (!el) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submitRef.current();
+      }
+    };
+    el.addEventListener("keydown", onKeyDown);
+    return () => el.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   return (
     <s-page heading="FormGuard">
@@ -182,14 +235,39 @@ export default function Index() {
                 width: "8px",
                 height: "8px",
                 borderRadius: "50%",
-                backgroundColor: enabled ? "#22c55e" : "#ef4444",
+                backgroundColor: !enabled
+                  ? "#ef4444"
+                  : detected
+                    ? "#22c55e"
+                    : "#f59e0b",
               }}
             />
             <s-text>
-              <strong>{enabled ? "Active" : "Disabled"}</strong>
+              <strong>
+                {!enabled ? "Disabled" : detected ? "Active" : "Enabled"}
+              </strong>
             </s-text>
           </span>
         </s-paragraph>
+        {enabled && detected && (
+          <s-paragraph>
+            <s-text color="subdued">
+              FormGuard is live and protecting your contact form.
+            </s-text>
+          </s-paragraph>
+        )}
+        {enabled && !detected && (
+          <s-banner
+            tone="warning"
+            heading="We haven't detected your contact form yet"
+          >
+            <s-paragraph>
+              If you just installed FormGuard or your contact page gets little
+              traffic, this is normal. Otherwise, open the theme editor and make
+              sure the FormGuard app embed is turned on.
+            </s-paragraph>
+          </s-banner>
+        )}
       </s-section>
 
       <s-section>
@@ -317,6 +395,31 @@ export default function Index() {
               </s-heading>
             </s-stack>
           </s-box>
+          {topKeywords.length > 0 && (
+            <s-box
+              padding="base"
+              borderWidth="base"
+              borderRadius="base"
+              background="subdued"
+            >
+              <s-stack direction="block" gap="small-300">
+                <s-text>Top Blocked Keywords</s-text>
+                {topKeywords.map((k) => (
+                  <s-stack
+                    key={k.word}
+                    direction="inline"
+                    gap="base"
+                    justifyContent="space-between"
+                  >
+                    <s-text>{k.word}</s-text>
+                    <s-text>
+                      <strong>{k.count}</strong>
+                    </s-text>
+                  </s-stack>
+                ))}
+              </s-stack>
+            </s-box>
+          )}
         </s-stack>
       </s-section>
 
@@ -325,47 +428,18 @@ export default function Index() {
           Messages containing these words, phrases, or email addresses will be
           blocked as spam.
         </s-paragraph>
-        <s-stack direction="inline" gap="base">
-          <input
-            type="text"
-            value={newKeyword}
-            onChange={(e) => setNewKeyword(e.target.value)}
+        <s-stack direction="inline" gap="base" alignItems="end">
+          <s-text-field
+            ref={keywordInputRef as never}
+            label="Add a blocked keyword"
             placeholder="e.g. buy now, free offer, spam@example.com"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleAddKeyword();
-              }
+            error={keywordError || undefined}
+            onInput={() => {
+              if (keywordError) setKeywordError("");
             }}
-            style={{
-              padding: "6px 12px",
-              border: "1px solid var(--p-color-border, #ccc)",
-              borderRadius: "8px",
-              fontSize: "14px",
-              lineHeight: "20px",
-              minWidth: "240px",
-              outline: "none",
-            }}
-            onFocus={(e) =>
-              (e.target.style.borderColor =
-                "var(--p-color-border-interactive, #005bd3)")
-            }
-            onBlur={(e) =>
-              (e.target.style.borderColor =
-                "var(--p-color-border, #ccc)")
-            }
           />
           <s-button onClick={handleAddKeyword}>Add</s-button>
         </s-stack>
-        {keywordError && (
-          <div style={{ marginTop: "8px" }}>
-            <s-text>
-              <span style={{ color: "#d72c0d", fontSize: "13px" }}>
-                {keywordError}
-              </span>
-            </s-text>
-          </div>
-        )}
         {keywords.length === 0 ? (
           <div style={{ marginTop: "12px" }}>
             <s-paragraph>

@@ -7,8 +7,23 @@ const EVENT_WINDOW_MS = 60_000;
 const EVENT_MAX = 60;
 const shopTimestamps = new Map<string, number[]>();
 
+// Sweep the rate-limit map at most once per window so it can't grow unbounded
+// as the number of shops that have ever sent an event accumulates over time.
+let lastSweep = 0;
+function sweepRateLimiter(now: number) {
+  if (now - lastSweep < EVENT_WINDOW_MS) return;
+  lastSweep = now;
+  for (const [shop, timestamps] of shopTimestamps) {
+    const fresh = timestamps.filter((t) => now - t < EVENT_WINDOW_MS);
+    if (fresh.length === 0) shopTimestamps.delete(shop);
+    else shopTimestamps.set(shop, fresh);
+  }
+}
+
 function isRateLimited(shop: string): boolean {
   const now = Date.now();
+  sweepRateLimiter(now);
+
   let timestamps = shopTimestamps.get(shop) || [];
   timestamps = timestamps.filter((t) => now - t < EVENT_WINDOW_MS);
 
@@ -20,6 +35,24 @@ function isRateLimited(shop: string): boolean {
   timestamps.push(now);
   shopTimestamps.set(shop, timestamps);
   return false;
+}
+
+// Retention: drop spam events older than 90 days so the SQLite file stays small
+// (the dashboard only ever reports the last 7 days). Time-gated so it runs at
+// most once per hour per instance instead of on every event.
+const RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+const PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+let lastPrune = 0;
+async function pruneOldEvents(now: number) {
+  if (now - lastPrune < PRUNE_INTERVAL_MS) return;
+  lastPrune = now;
+  try {
+    await prisma.spamEvent.deleteMany({
+      where: { createdAt: { lt: new Date(now - RETENTION_MS) } },
+    });
+  } catch {
+    // Best-effort cleanup; never block an event on a failed prune.
+  }
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -47,6 +80,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   await prisma.spamEvent.create({
     data: { shop, isSpam, reason },
   });
+
+  void pruneOldEvents(Date.now());
 
   return Response.json({ success: true });
 };

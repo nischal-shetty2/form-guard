@@ -151,11 +151,19 @@
       });
 
       for (var i = 0; i < blockedKeywords.length; i++) {
-        var pattern = new RegExp(
-          "\\b" + escapeRegex(blockedKeywords[i]) + "\\b"
-        );
-        if (pattern.test(formText)) {
-          return "keyword:" + blockedKeywords[i];
+        var kw = blockedKeywords[i];
+        var matched;
+        if (/^[a-z0-9]+$/.test(kw)) {
+          // Plain word: match on word boundaries so "cialis" doesn't trip on
+          // "specialist".
+          matched = new RegExp("\\b" + escapeRegex(kw) + "\\b").test(formText);
+        } else {
+          // Phrase, email, or anything with symbols: match anywhere, since
+          // word boundaries are unreliable around "@", ".", spaces, etc.
+          matched = formText.indexOf(kw) !== -1;
+        }
+        if (matched) {
+          return "keyword:" + kw;
         }
       }
     }
