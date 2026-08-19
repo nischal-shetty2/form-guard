@@ -1,6 +1,7 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { proxyShop } from "../app-proxy.server";
 import { getShopConfig } from "../shop-config.server";
 
 // Record (at most once per hour per shop) that the storefront embed loaded and
@@ -43,7 +44,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   await authenticate.public.appProxy(request);
 
   const url = new URL(request.url);
-  const shop = url.searchParams.get("shop") || "";
+  const shop = proxyShop(url);
   if (!shop) {
     return Response.json({ enabled: true, keywords: [] });
   }

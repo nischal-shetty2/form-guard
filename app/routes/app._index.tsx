@@ -151,6 +151,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   };
 };
 
+// Thrown inside the addKeyword transaction to roll it back when the shop is at
+// the cap. A sentinel class keeps that case distinguishable from a real database
+// error in the catch below.
+class KeywordLimitReached extends Error {}
+
 type ActionResult = {
   ok: boolean;
   intent: string;
@@ -198,30 +203,30 @@ export const action = async ({
       }
 
       const duplicateError = `"${word}" is already in your blocked list.`;
+      const limitError = `You've reached the limit of ${KEYWORD_LIMIT} keywords. Remove one to add another.`;
 
-      const [existing, count] = await Promise.all([
-        prisma.keyword.findUnique({
-          where: { shop_word: { shop, word } },
-          select: { id: true },
-        }),
-        prisma.keyword.count({ where: { shop } }),
-      ]);
-
+      // Duplicates are checked up front only so the common case gets this
+      // message without relying on the unique index to raise.
+      const existing = await prisma.keyword.findUnique({
+        where: { shop_word: { shop, word } },
+        select: { id: true },
+      });
       if (existing) {
         return { ok: false, intent, error: duplicateError };
       }
 
-      if (count >= KEYWORD_LIMIT) {
-        return {
-          ok: false,
-          intent,
-          error: `You've reached the limit of ${KEYWORD_LIMIT} keywords. Remove one to add another.`,
-        };
-      }
-
       try {
-        await prisma.keyword.create({ data: { shop, word } });
+        await prisma.$transaction(async (tx) => {
+          // Counted inside the transaction: two tabs adding at once could both
+          // read 199 outside one and push the list past the cap.
+          const count = await tx.keyword.count({ where: { shop } });
+          if (count >= KEYWORD_LIMIT) throw new KeywordLimitReached();
+          await tx.keyword.create({ data: { shop, word } });
+        });
       } catch (error) {
+        if (error instanceof KeywordLimitReached) {
+          return { ok: false, intent, error: limitError };
+        }
         // The same word can land from another tab between the check above and
         // this write. That is the unique index doing its job, not a failure
         // worth a 500.

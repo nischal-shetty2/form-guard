@@ -12,9 +12,12 @@ import prisma from "./db.server";
  */
 const TTL_MS = 60_000;
 
+// Readonly because getShopConfig hands out the cached object itself rather than
+// a copy: a caller that sorted or pushed to `keywords` would corrupt every later
+// read for that shop until the TTL expired.
 export type ShopConfig = {
-  enabled: boolean;
-  keywords: string[];
+  readonly enabled: boolean;
+  readonly keywords: readonly string[];
 };
 
 const cache = new Map<string, { at: number; value: ShopConfig }>();
