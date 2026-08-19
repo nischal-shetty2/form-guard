@@ -17,12 +17,12 @@
 
   var pageLoadTime;
   // Two separate signals, because they answer different questions. sawGesture is
-  // "did a human touch this form at all", which is what separates a scripted
-  // submit from a real one. fieldInteractionTime is "how fast was it filled",
-  // and deliberately ignores gestures on the submit control: on a form the
-  // browser restored (back navigation, session restore, autofill) the visitor's
-  // only gesture is the submit click, and clocking the fill from there would
-  // block every one of them.
+  // "did a human touch this page at all", which is what separates a scripted
+  // submit from a real one. fieldInteractionTime is "how fast was this form
+  // filled", and deliberately ignores gestures on the submit control: on a form
+  // the browser restored (back navigation, session restore, autofill) the
+  // visitor's only gesture is the submit click, and clocking the fill from there
+  // would block every one of them.
   var sawGesture = false;
   var fieldInteractionTime = null;
   var blockedKeywords = [];
@@ -146,19 +146,38 @@
     );
   }
 
+  var GESTURE_EVENTS = ["focusin", "keydown", "pointerdown", "touchstart"];
+
   function trackInteraction(form) {
-    var mark = function (e) {
-      // Untrusted events are dispatched by script, which is exactly what this
-      // gate is meant to catch, so they must not satisfy it.
+    // Untrusted events are dispatched by script, which is exactly what these
+    // gates are meant to catch, so they must not satisfy either one.
+
+    // sawGesture only has to answer "was a human on this page at all", so it
+    // listens on the document rather than the form. A theme can render the
+    // submit control outside the form with form="contact_form", and then a
+    // visitor whose fields the browser restored produces no event on the form
+    // itself -- their message would be discarded as "nointeraction".
+    var markGesture = function (e) {
       if (e.isTrusted === false) return;
       sawGesture = true;
+    };
+
+    // The fill clock stays scoped to the form, and still ignores the submit
+    // control: on a restored form the visitor's only gesture is the submit
+    // click, and clocking the fill from there would block every one of them.
+    var markField = function (e) {
+      if (e.isTrusted === false) return;
       if (fieldInteractionTime === null && !isSubmitControl(e.target)) {
         fieldInteractionTime = Date.now();
       }
     };
-    var events = ["focusin", "keydown", "pointerdown", "touchstart"];
-    for (var i = 0; i < events.length; i++) {
-      form.addEventListener(events[i], mark, {
+
+    for (var i = 0; i < GESTURE_EVENTS.length; i++) {
+      document.addEventListener(GESTURE_EVENTS[i], markGesture, {
+        capture: true,
+        passive: true,
+      });
+      form.addEventListener(GESTURE_EVENTS[i], markField, {
         capture: true,
         passive: true,
       });
@@ -234,8 +253,8 @@
       return "honeypot";
     }
 
-    // A human cannot submit without at least focusing a field or pressing the
-    // button, so zero recorded gestures means the submit was driven by script.
+    // A human cannot reach a submit without focusing, typing, or pointing at
+    // something first, so zero recorded gestures means the submit was scripted.
     if (!sawGesture) {
       return "nointeraction";
     }
