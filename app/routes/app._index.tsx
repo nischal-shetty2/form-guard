@@ -11,6 +11,39 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import prisma from "../db.server";
 import { invalidateShopConfig } from "../shop-config.server";
 
+// Every keyword is shipped to the storefront on every contact page view, so the
+// list needs a ceiling. 200 is far above any real blocklist and keeps the
+// payload small.
+const KEYWORD_LIMIT = 200;
+const KEYWORD_MIN_LENGTH = 2;
+const KEYWORD_MAX_LENGTH = 100;
+const RECENT_BLOCKS_LIMIT = 8;
+
+const KEYWORD_PREFIX = "keyword:";
+
+// Merchant-facing names for the internal reason codes. "Honeypot" and "time"
+// mean nothing to someone who hasn't read the source.
+const REASON_LABELS: Record<string, string> = {
+  honeypot: "Bot trap",
+  time: "Submitted too fast",
+  nointeraction: "No human interaction",
+  keyword: "Blocked keyword",
+  unknown: "Other",
+};
+
+function reasonLabel(reason: string) {
+  return REASON_LABELS[reason] ?? "Other";
+}
+
+function relativeTime(from: Date, now: number) {
+  const minutes = Math.floor(Math.max(0, now - from.getTime()) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
@@ -18,33 +51,48 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-  const [enabledSetting, lastSeenSetting, keywords, counts, spamReasons] =
-    await Promise.all([
-      prisma.setting.findUnique({
-        where: { shop_key: { shop, key: "enabled" } },
-      }),
-      prisma.setting.findUnique({
-        where: { shop_key: { shop, key: "lastSeen" } },
-      }),
-      prisma.keyword.findMany({
-        where: { shop },
-        orderBy: { id: "desc" },
-      }),
-      prisma.spamEvent.groupBy({
-        by: ["isSpam"],
-        _count: true,
-        where: { shop, createdAt: { gte: sevenDaysAgo } },
-      }),
-      prisma.spamEvent.groupBy({
-        by: ["reason"],
-        _count: true,
-        where: { shop, isSpam: true, createdAt: { gte: sevenDaysAgo } },
-      }),
-    ]);
+  const [
+    enabledSetting,
+    lastSeenSetting,
+    keywords,
+    counts,
+    spamReasons,
+    recentBlocks,
+  ] = await Promise.all([
+    prisma.setting.findUnique({
+      where: { shop_key: { shop, key: "enabled" } },
+    }),
+    prisma.setting.findUnique({
+      where: { shop_key: { shop, key: "lastSeen" } },
+    }),
+    prisma.keyword.findMany({
+      where: { shop },
+      orderBy: { id: "desc" },
+    }),
+    prisma.spamEvent.groupBy({
+      by: ["isSpam"],
+      _count: true,
+      where: { shop, createdAt: { gte: sevenDaysAgo } },
+    }),
+    prisma.spamEvent.groupBy({
+      by: ["reason"],
+      _count: true,
+      where: { shop, isSpam: true, createdAt: { gte: sevenDaysAgo } },
+    }),
+    prisma.spamEvent.findMany({
+      where: { shop, isSpam: true, createdAt: { gte: sevenDaysAgo } },
+      orderBy: { createdAt: "desc" },
+      take: RECENT_BLOCKS_LIMIT,
+      select: { id: true, reason: true, createdAt: true },
+    }),
+  ]);
 
   const enabled = !enabledSetting || enabledSetting.value !== "false";
   const spamCount = counts.find((c) => c.isSpam)?._count ?? 0;
   const validCount = counts.find((c) => !c.isSpam)?._count ?? 0;
+  const totalCount = spamCount + validCount;
+  const blockRate =
+    totalCount > 0 ? Math.round((spamCount / totalCount) * 100) : 0;
 
   // The embed pings the keywords endpoint whenever it finds a contact form, so
   // a recent heartbeat means protection is genuinely live on the storefront —
@@ -56,14 +104,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     Number.isFinite(lastSeenMs) &&
     lastSeenMs > 0 &&
     Date.now() - lastSeenMs < SEEN_WINDOW_MS;
-  const detected = heartbeatRecent || spamCount + validCount > 0;
+  const detected = heartbeatRecent || totalCount > 0;
 
   const reasonCounts: Record<string, number> = {};
   const keywordCounts: Record<string, number> = {};
   for (const row of spamReasons) {
-    if (row.reason.startsWith("keyword:")) {
+    if (row.reason.startsWith(KEYWORD_PREFIX)) {
       reasonCounts.keyword = (reasonCounts.keyword || 0) + row._count;
-      const word = row.reason.slice("keyword:".length);
+      const word = row.reason.slice(KEYWORD_PREFIX.length);
       if (word) keywordCounts[word] = (keywordCounts[word] || 0) + row._count;
     } else {
       reasonCounts[row.reason] = (reasonCounts[row.reason] || 0) + row._count;
@@ -75,94 +123,171 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     .slice(0, 5)
     .map(([word, count]) => ({ word, count }));
 
+  // Relative labels are computed here rather than in render so the server and
+  // client agree on the string and hydration stays clean.
+  const now = Date.now();
+  const recentEvents = recentBlocks.map((event) => {
+    const isKeyword = event.reason.startsWith(KEYWORD_PREFIX);
+    return {
+      id: event.id,
+      label: isKeyword ? REASON_LABELS.keyword : reasonLabel(event.reason),
+      detail: isKeyword ? event.reason.slice(KEYWORD_PREFIX.length) : "",
+      when: relativeTime(event.createdAt, now),
+    };
+  });
+
   return {
     enabled,
     detected,
     keywords,
+    keywordLimit: KEYWORD_LIMIT,
     spamCount,
     validCount,
+    blockRate,
     reasonCounts,
     topKeywords,
+    recentEvents,
   };
 };
 
-export const action = async ({ request }: ActionFunctionArgs) => {
+type ActionResult = {
+  ok: boolean;
+  intent: string;
+  message?: string;
+  error?: string;
+};
+
+export const action = async ({
+  request,
+}: ActionFunctionArgs): Promise<ActionResult> => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
   const formData = await request.formData();
-  const intent = formData.get("intent");
+  const intent = String(formData.get("intent") || "");
 
   switch (intent) {
     case "toggle": {
       const currentEnabled = formData.get("enabled") === "true";
+      const next = currentEnabled ? "false" : "true";
       await prisma.setting.upsert({
         where: { shop_key: { shop, key: "enabled" } },
-        update: { value: currentEnabled ? "false" : "true" },
-        create: {
-          shop,
-          key: "enabled",
-          value: currentEnabled ? "false" : "true",
-        },
+        update: { value: next },
+        create: { shop, key: "enabled", value: next },
       });
-      break;
+      invalidateShopConfig(shop);
+      return {
+        ok: true,
+        intent,
+        message: next === "true" ? "Protection enabled" : "Protection disabled",
+      };
     }
     case "addKeyword": {
       const word = String(formData.get("word") || "")
         .trim()
         .toLowerCase()
-        .slice(0, 100);
-      if (word && word.length >= 2) {
-        await prisma.keyword.upsert({
-          where: { shop_word: { shop, word } },
-          update: {},
-          create: { shop, word },
-        });
+        .slice(0, KEYWORD_MAX_LENGTH);
+
+      if (word.length < KEYWORD_MIN_LENGTH) {
+        return {
+          ok: false,
+          intent,
+          error: `Keyword must be at least ${KEYWORD_MIN_LENGTH} characters.`,
+        };
       }
-      break;
+
+      const existing = await prisma.keyword.findUnique({
+        where: { shop_word: { shop, word } },
+        select: { id: true },
+      });
+      if (existing) {
+        return {
+          ok: false,
+          intent,
+          error: `"${word}" is already in your blocked list.`,
+        };
+      }
+
+      const count = await prisma.keyword.count({ where: { shop } });
+      if (count >= KEYWORD_LIMIT) {
+        return {
+          ok: false,
+          intent,
+          error: `You've reached the limit of ${KEYWORD_LIMIT} keywords. Remove one to add another.`,
+        };
+      }
+
+      await prisma.keyword.create({ data: { shop, word } });
+      invalidateShopConfig(shop);
+      return { ok: true, intent, message: `"${word}" blocked` };
     }
     case "removeKeyword": {
       const id = Number(formData.get("id"));
-      if (id) {
-        await prisma.keyword.deleteMany({ where: { id, shop } });
+      if (!Number.isInteger(id) || id <= 0) {
+        return { ok: false, intent, error: "That keyword no longer exists." };
       }
-      break;
+      const { count } = await prisma.keyword.deleteMany({
+        where: { id, shop },
+      });
+      if (count === 0) {
+        return { ok: false, intent, error: "That keyword no longer exists." };
+      }
+      invalidateShopConfig(shop);
+      return { ok: true, intent, message: "Keyword removed" };
     }
+    default:
+      return { ok: false, intent, error: "Unknown action." };
   }
-
-  // Both the toggle and the blocklist are served to the storefront from a cached
-  // per-shop config, so a merchant's change has to drop that entry to take
-  // effect before the TTL expires.
-  invalidateShopConfig(shop);
-
-  return { success: true };
 };
 
 export default function Index() {
-  const { enabled, detected, keywords, spamCount, validCount, reasonCounts, topKeywords } =
-    useLoaderData<typeof loader>();
-  const fetcher = useFetcher();
+  const {
+    enabled,
+    detected,
+    keywords,
+    keywordLimit,
+    spamCount,
+    validCount,
+    blockRate,
+    reasonCounts,
+    topKeywords,
+    recentEvents,
+  } = useLoaderData<typeof loader>();
+  const fetcher = useFetcher<ActionResult>();
   const shopify = useAppBridge();
   const keywordInputRef = useRef<HTMLInputElement | null>(null);
   const [keywordError, setKeywordError] = useState("");
 
+  const pendingIntent = fetcher.formData?.get("intent");
+  const pendingRemoveId =
+    pendingIntent === "removeKeyword" ? fetcher.formData?.get("id") : null;
+  const busy = fetcher.state !== "idle";
+
+  // The toggle is the slowest-feeling control because the label only changes
+  // once the loader revalidates, so show the target state while it's in flight.
+  const shownEnabled = pendingIntent === "toggle" ? !enabled : enabled;
+
   useEffect(() => {
-    if (fetcher.data?.success) {
-      const intent = fetcher.formData?.get("intent");
-      if (intent === "toggle") {
-        const wasEnabled = fetcher.formData?.get("enabled") === "true";
-        shopify.toast.show(
-          wasEnabled ? "Protection disabled" : "Protection enabled",
-        );
-      } else if (intent === "addKeyword") {
-        if (keywordInputRef.current) keywordInputRef.current.value = "";
-        setKeywordError("");
-        shopify.toast.show("Keyword added");
-      } else if (intent === "removeKeyword") {
-        shopify.toast.show("Keyword removed");
+    const result = fetcher.data;
+    if (!result) return;
+
+    if (result.ok) {
+      if (result.intent === "addKeyword" && keywordInputRef.current) {
+        keywordInputRef.current.value = "";
       }
+      setKeywordError("");
+      if (result.message) shopify.toast.show(result.message);
+      return;
     }
-  }, [fetcher.data, fetcher.formData, shopify]);
+
+    // Server-side rejections (duplicate, limit reached, stale id) surface where
+    // the merchant can act on them rather than reporting a phantom success.
+    if (result.intent === "addKeyword") {
+      setKeywordError(result.error || "Could not add that keyword.");
+    } else if (result.error) {
+      shopify.toast.show(result.error, { isError: true });
+    }
+  }, [fetcher.data, shopify]);
 
   const handleToggle = () => {
     fetcher.submit(
@@ -174,12 +299,20 @@ export default function Index() {
   const handleAddKeyword = () => {
     const word = (keywordInputRef.current?.value ?? "").trim().toLowerCase();
     if (!word) return;
-    if (word.length < 2) {
-      setKeywordError("Keyword must be at least 2 characters.");
+    if (word.length < KEYWORD_MIN_LENGTH) {
+      setKeywordError(
+        `Keyword must be at least ${KEYWORD_MIN_LENGTH} characters.`,
+      );
       return;
     }
     if (keywords.some((k) => k.word === word)) {
       setKeywordError(`"${word}" is already in your blocked list.`);
+      return;
+    }
+    if (keywords.length >= keywordLimit) {
+      setKeywordError(
+        `You've reached the limit of ${keywordLimit} keywords. Remove one to add another.`,
+      );
       return;
     }
     setKeywordError("");
@@ -211,15 +344,27 @@ export default function Index() {
     return () => el.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  const statusTone = !shownEnabled
+    ? "critical"
+    : detected
+      ? "success"
+      : "caution";
+  const statusText = !shownEnabled
+    ? "Disabled"
+    : detected
+      ? "Active"
+      : "Enabled";
+
   return (
     <s-page heading="FormGuard">
       <s-button
         slot="primary-action"
         onClick={handleToggle}
         variant="primary"
-        tone={enabled ? "critical" : undefined}
+        tone={shownEnabled ? "critical" : undefined}
+        loading={pendingIntent === "toggle" || undefined}
       >
-        {enabled ? "Disable Protection" : "Enable Protection"}
+        {shownEnabled ? "Disable Protection" : "Enable Protection"}
       </s-button>
 
       <s-section heading="Spam Protection">
@@ -227,42 +372,15 @@ export default function Index() {
           FormGuard protects your contact form with 3 layers: honeypot field,
           time-based detection, and keyword filtering.
         </s-paragraph>
-        <s-paragraph>
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "6px",
-            }}
-          >
-            <span
-              style={{
-                display: "inline-block",
-                width: "8px",
-                height: "8px",
-                borderRadius: "50%",
-                backgroundColor: !enabled
-                  ? "#ef4444"
-                  : detected
-                    ? "#22c55e"
-                    : "#f59e0b",
-              }}
-            />
-            <s-text>
-              <strong>
-                {!enabled ? "Disabled" : detected ? "Active" : "Enabled"}
-              </strong>
-            </s-text>
-          </span>
-        </s-paragraph>
-        {enabled && detected && (
-          <s-paragraph>
+        <s-stack direction="inline" gap="small-200" alignItems="center">
+          <s-badge tone={statusTone}>{statusText}</s-badge>
+          {shownEnabled && detected && (
             <s-text color="subdued">
               FormGuard is live and protecting your contact form.
             </s-text>
-          </s-paragraph>
-        )}
-        {enabled && !detected && (
+          )}
+        </s-stack>
+        {shownEnabled && !detected && (
           <s-banner
             tone="warning"
             heading="We haven't detected your contact form yet"
@@ -302,6 +420,9 @@ export default function Index() {
             Setup Guide
             <style>{`
               details[open] .setup-arrow { transform: rotate(90deg); }
+              /* Safari ignores list-style:none on summary and draws its own
+                 marker next to the custom arrow. */
+              summary::-webkit-details-marker { display: none; }
             `}</style>
           </summary>
           <div style={{ marginTop: "12px" }}>
@@ -309,7 +430,7 @@ export default function Index() {
               <s-paragraph>
                 <strong>Step 1:</strong> Click the{" "}
                 <strong>
-                  {enabled ? "Disable" : "Enable"} Protection
+                  {shownEnabled ? "Disable" : "Enable"} Protection
                 </strong>{" "}
                 button in the top-right corner to toggle spam protection.
               </s-paragraph>
@@ -355,36 +476,26 @@ export default function Index() {
             borderRadius="base"
             background="subdued"
           >
-            <s-stack direction="block" gap="base">
+            <s-stack direction="block" gap="small-300">
               <s-text>Spam Blocked</s-text>
               <s-heading>
                 <span style={{ fontSize: "28px" }}>{spamCount}</span>
               </s-heading>
+              {spamCount + validCount > 0 && (
+                <s-text color="subdued">
+                  {blockRate}% of all submissions
+                </s-text>
+              )}
               {Object.keys(reasonCounts).length > 0 && (
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "8px",
-                    flexWrap: "wrap",
-                    marginTop: "4px",
-                  }}
-                >
-                  {Object.entries(reasonCounts).map(([reason, count]) => (
-                    <span
-                      key={reason}
-                      style={{
-                        fontSize: "12px",
-                        padding: "2px 8px",
-                        borderRadius: "10px",
-                        background:
-                          "var(--p-color-bg-surface-secondary, #e4e5e7)",
-                      }}
-                    >
-                      {reason.charAt(0).toUpperCase() + reason.slice(1)}:{" "}
-                      {count}
-                    </span>
-                  ))}
-                </div>
+                <s-stack direction="inline" gap="small-300">
+                  {Object.entries(reasonCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([reason, count]) => (
+                      <s-badge key={reason} tone="neutral">
+                        {reasonLabel(reason)}: {count}
+                      </s-badge>
+                    ))}
+                </s-stack>
               )}
             </s-stack>
           </s-box>
@@ -394,7 +505,7 @@ export default function Index() {
             borderRadius="base"
             background="subdued"
           >
-            <s-stack direction="block" gap="base">
+            <s-stack direction="block" gap="small-300">
               <s-text>Valid Submissions</s-text>
               <s-heading>
                 <span style={{ fontSize: "28px" }}>{validCount}</span>
@@ -439,72 +550,84 @@ export default function Index() {
             ref={keywordInputRef as never}
             label="Add a blocked keyword"
             placeholder="e.g. buy now, free offer, spam@example.com"
+            maxLength={KEYWORD_MAX_LENGTH}
+            details={`${keywords.length} of ${keywordLimit} used`}
             error={keywordError || undefined}
             onInput={() => {
               if (keywordError) setKeywordError("");
             }}
           />
-          <s-button onClick={handleAddKeyword}>Add</s-button>
+          <s-button
+            onClick={handleAddKeyword}
+            loading={pendingIntent === "addKeyword" || undefined}
+          >
+            Add
+          </s-button>
         </s-stack>
         {keywords.length === 0 ? (
           <div style={{ marginTop: "12px" }}>
             <s-paragraph>
-              <s-text>
+              <s-text color="subdued">
                 No blocked keywords yet. Add words, phrases, or email addresses
                 above to start filtering spam.
               </s-text>
             </s-paragraph>
           </div>
         ) : (
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "8px",
-              marginTop: "12px",
-            }}
-          >
-            {keywords.map((keyword) => (
-              <span
-                key={keyword.id}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: "4px 8px 4px 12px",
-                  background: "var(--p-color-bg-surface-secondary, #f1f1f1)",
-                  borderRadius: "16px",
-                  fontSize: "13px",
-                }}
-              >
-                {keyword.word}
-                <button
-                  onClick={() => handleRemoveKeyword(keyword.id)}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.background =
-                      "var(--p-color-bg-surface-tertiary, #ddd)")
+          <div style={{ marginTop: "12px" }}>
+            <s-stack direction="inline" gap="small-300">
+              {keywords.map((keyword) => (
+                <s-clickable-chip
+                  key={keyword.id}
+                  removable
+                  disabled={
+                    busy && pendingRemoveId === String(keyword.id)
+                      ? true
+                      : undefined
                   }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.background = "none")
-                  }
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    padding: "2px 6px",
-                    fontSize: "13px",
-                    color: "var(--p-color-text-secondary, #666)",
-                    lineHeight: 1,
-                    borderRadius: "50%",
-                    transition: "background 0.15s ease",
-                  }}
-                  aria-label={`Remove ${keyword.word}`}
+                  onRemove={() => handleRemoveKeyword(keyword.id)}
                 >
-                  ✕
-                </button>
-              </span>
-            ))}
+                  {keyword.word}
+                </s-clickable-chip>
+              ))}
+            </s-stack>
           </div>
+        )}
+      </s-section>
+
+      <s-section heading="Recent Blocks">
+        {recentEvents.length === 0 ? (
+          <s-paragraph>
+            <s-text color="subdued">
+              Nothing blocked in the last 7 days. Blocked submissions will show
+              up here with the reason they were caught.
+            </s-text>
+          </s-paragraph>
+        ) : (
+          <s-table variant="auto">
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Reason</s-table-header>
+              <s-table-header listSlot="secondary">Match</s-table-header>
+              <s-table-header listSlot="kicker">When</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {recentEvents.map((event) => (
+                <s-table-row key={event.id}>
+                  <s-table-cell>{event.label}</s-table-cell>
+                  <s-table-cell>
+                    {event.detail ? (
+                      event.detail
+                    ) : (
+                      <s-text color="subdued">—</s-text>
+                    )}
+                  </s-table-cell>
+                  <s-table-cell>
+                    <s-text color="subdued">{event.when}</s-text>
+                  </s-table-cell>
+                </s-table-row>
+              ))}
+            </s-table-body>
+          </s-table>
         )}
       </s-section>
     </s-page>
