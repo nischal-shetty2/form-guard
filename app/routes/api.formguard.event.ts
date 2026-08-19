@@ -51,8 +51,9 @@ async function pruneOldEvents(now: number) {
     await prisma.spamEvent.deleteMany({
       where: { createdAt: { lt: new Date(now - RETENTION_MS) } },
     });
-  } catch {
+  } catch (error) {
     // Best-effort cleanup; never block an event on a failed prune.
+    console.error("formguard: retention prune failed", error);
   }
 }
 
@@ -67,16 +68,23 @@ const KEYWORD_PREFIX = "keyword:";
  * dashboard's "Top Blocked Keywords" list. Keyword reasons are therefore checked
  * against the shop's actual blocklist, which is already cached for the keywords
  * endpoint so this costs no extra query in the common case.
+ *
+ * Returns the reason to store, or null to reject the request. A keyword that is
+ * no longer on the blocklist is still recorded, but as the bare "keyword"
+ * reason: the merchant may have removed the word after the storefront cached it
+ * (10 minutes in sessionStorage on top of this cache's 60s), and dropping those
+ * events would undercount real blocks. Either way the stored string is one of
+ * ours, so nothing a visitor types reaches the dashboard.
  */
-async function isReasonAllowed(shop: string, reason: string) {
-  if (FIXED_REASONS.includes(reason)) return true;
-  if (!reason.startsWith(KEYWORD_PREFIX)) return false;
+async function resolveReason(shop: string, reason: string) {
+  if (FIXED_REASONS.includes(reason)) return reason;
+  if (!reason.startsWith(KEYWORD_PREFIX)) return null;
 
   const word = reason.slice(KEYWORD_PREFIX.length);
-  if (!word) return false;
+  if (!word) return null;
 
   const config = await getShopConfig(shop);
-  return config.keywords.includes(word);
+  return config.keywords.includes(word) ? reason : "keyword";
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -94,9 +102,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const isSpam = url.searchParams.get("isSpam") === "1";
   const rawReason = url.searchParams.get("reason") || "unknown";
-  const reason = rawReason.slice(0, 200);
 
-  if (!(await isReasonAllowed(shop, reason))) {
+  const reason = await resolveReason(shop, rawReason.slice(0, 200));
+  if (reason === null) {
     return Response.json({ success: false }, { status: 400 });
   }
 
@@ -104,9 +112,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     await prisma.spamEvent.create({
       data: { shop, isSpam, reason },
     });
-  } catch {
+  } catch (error) {
     // The storefront treats this as fire-and-forget, so a failed write should
-    // not surface as a 500 in the merchant's logs for every submission.
+    // not surface as a 500 in the merchant's logs for every submission. It does
+    // need to be logged though: silently swallowed writes make a broken
+    // database look exactly like a shop that gets no spam.
+    console.error("formguard: failed to record spam event", error);
     return Response.json({ success: false }, { status: 200 });
   }
 

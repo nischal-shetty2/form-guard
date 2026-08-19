@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
+import { invalidateShopConfig } from "../shop-config.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { shop, topic } = await authenticate.webhook(request);
@@ -10,6 +11,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   await db.spamEvent.deleteMany({ where: { shop } });
   await db.keyword.deleteMany({ where: { shop } });
   await db.setting.deleteMany({ where: { shop } });
+  invalidateShopConfig(shop);
 
   return new Response();
 };
