@@ -2,15 +2,29 @@
   "use strict";
 
   // Blocked if the form is submitted within 2s of page load, or within 800ms of
-  // the visitor's first interaction with it. The second threshold catches bots
-  // that idle on the page before filling everything instantly; 800ms is well
-  // under the time any human needs to fill even a pasted message.
+  // the visitor's first interaction with a field. The second threshold catches
+  // bots that idle on the page before filling everything instantly; 800ms is
+  // well under the time any human needs to fill even a pasted message.
   var MINIMUM_TIME_MS = 2000;
   var MINIMUM_INTERACTION_MS = 800;
   var KEYWORD_CACHE_TTL_MS = 10 * 60 * 1000;
 
+  // Deliberately generic field name. Anything containing "phone", "name", or
+  // "email" gets matched by browser autofill heuristics (which ignore
+  // autocomplete="off" for contact fields), which would fill the trap for real
+  // customers and silently drop their message.
+  var HONEYPOT_NAME = "fg_check";
+
   var pageLoadTime;
-  var interactionTime = null;
+  // Two separate signals, because they answer different questions. sawGesture is
+  // "did a human touch this form at all", which is what separates a scripted
+  // submit from a real one. fieldInteractionTime is "how fast was it filled",
+  // and deliberately ignores gestures on the submit control: on a form the
+  // browser restored (back navigation, session restore, autofill) the visitor's
+  // only gesture is the submit click, and clocking the fill from there would
+  // block every one of them.
+  var sawGesture = false;
+  var fieldInteractionTime = null;
   var blockedKeywords = [];
   var protectionEnabled = true;
   var proxyUrl = "";
@@ -80,10 +94,16 @@
       if (!candidate) candidate = forms[i];
     }
 
-    // Deliberately not falling back to idMatch: if it's set here it was rejected
-    // above for sitting inside <footer>, and guarding a newsletter signup instead
-    // of the contact form is worse than guarding nothing.
-    return candidate;
+    if (candidate) return candidate;
+
+    // idMatch is only still set if it was rejected above for sitting inside
+    // <footer>, where it is usually a newsletter signup and guarding that
+    // instead of the contact form would be worse than guarding nothing. A
+    // message field is the tell: themes that put a real "contact us" block in
+    // the footer have one, newsletter signups never do.
+    if (idMatch && hasMessageField(idMatch)) return idMatch;
+
+    return null;
   }
 
   function hasMessageField(form) {
@@ -94,12 +114,6 @@
       form.querySelector('[name*="[message]"]')
     );
   }
-
-  // Deliberately generic field name. Anything containing "phone", "name", or
-  // "email" gets matched by browser autofill heuristics (which ignore
-  // autocomplete="off" for contact fields), which would fill the trap for real
-  // customers and silently drop their message.
-  var HONEYPOT_NAME = "fg_check";
 
   function injectHoneypot(form) {
     var container = document.createElement("div");
@@ -122,9 +136,25 @@
     form.appendChild(container);
   }
 
+  // A gesture on the submit control tells us a human is here but nothing about
+  // how long the form took to fill, so it must not start the fill clock.
+  function isSubmitControl(target) {
+    if (!target || typeof target.closest !== "function") return false;
+    return !!target.closest(
+      'button:not([type="button"]):not([type="reset"]),' +
+        '[type="submit"],[type="image"]'
+    );
+  }
+
   function trackInteraction(form) {
-    var mark = function () {
-      if (interactionTime === null) interactionTime = Date.now();
+    var mark = function (e) {
+      // Untrusted events are dispatched by script, which is exactly what this
+      // gate is meant to catch, so they must not satisfy it.
+      if (e.isTrusted === false) return;
+      sawGesture = true;
+      if (fieldInteractionTime === null && !isSubmitControl(e.target)) {
+        fieldInteractionTime = Date.now();
+      }
     };
     var events = ["focusin", "keydown", "pointerdown", "touchstart"];
     for (var i = 0; i < events.length; i++) {
@@ -205,14 +235,21 @@
     }
 
     // A human cannot submit without at least focusing a field or pressing the
-    // button, so zero recorded interaction means the submit was driven by script.
-    if (interactionTime === null) {
+    // button, so zero recorded gestures means the submit was driven by script.
+    if (!sawGesture) {
       return "nointeraction";
     }
 
+    if (Date.now() - pageLoadTime < MINIMUM_TIME_MS) {
+      return "time";
+    }
+
+    // Null when the submit control was the visitor's only gesture, which is the
+    // normal shape of a restored or autofilled form. There is no fill duration
+    // to judge in that case, so fall through to the keyword check.
     if (
-      Date.now() - pageLoadTime < MINIMUM_TIME_MS ||
-      Date.now() - interactionTime < MINIMUM_INTERACTION_MS
+      fieldInteractionTime !== null &&
+      Date.now() - fieldInteractionTime < MINIMUM_INTERACTION_MS
     ) {
       return "time";
     }
