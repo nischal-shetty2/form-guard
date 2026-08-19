@@ -1,9 +1,21 @@
-import type { LoaderFunctionArgs } from "react-router";
-import { redirect, Form, useLoaderData } from "react-router";
-
-import { login } from "../../shopify.server";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { redirect } from "react-router";
 
 import styles from "./styles.module.css";
+
+const TITLE = "FormGuard — Block Shopify contact form spam";
+const DESCRIPTION =
+  "FormGuard stops automated spam on your Shopify contact form with three invisible checks. No captcha, no friction for your customers, free forever.";
+
+export const meta: MetaFunction = () => [
+  { title: TITLE },
+  { name: "description", content: DESCRIPTION },
+  { property: "og:title", content: TITLE },
+  { property: "og:description", content: DESCRIPTION },
+  { property: "og:type", content: "website" },
+  { property: "og:image", content: "/listing1.png" },
+  { name: "twitter:card", content: "summary_large_image" },
+];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
@@ -12,12 +24,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     throw redirect(`/app?${url.searchParams.toString()}`);
   }
 
-  return { showForm: Boolean(login) };
+  return null;
 };
 
 export default function App() {
-  const { showForm } = useLoaderData<typeof loader>();
-
   return (
     <div className={styles.page}>
       {/* Hero */}
@@ -29,30 +39,13 @@ export default function App() {
           before it reaches you
         </h1>
         <p className={styles.subheading}>
-          FormGuard stops bots and spam submissions on your Shopify contact form
-          with 3 invisible layers of protection. No captcha. No friction for
-          your customers.
+          FormGuard stops automated spam on your Shopify contact form with three
+          invisible checks. No captcha. No friction for your customers.
         </p>
-        <a
-          href="https://apps.shopify.com/formguard"
-          className={styles.cta}
-        >
+        <a href="https://apps.shopify.com/formguard" className={styles.cta}>
           Install Free
         </a>
         <p className={styles.price}>Free forever. No hidden charges.</p>
-
-        {showForm && (
-          <Form className={styles.form} method="post" action="/auth/login">
-            <label className={styles.label}>
-              <span>Shop domain</span>
-              <input className={styles.input} type="text" name="shop" />
-              <span>e.g: my-shop-domain.myshopify.com</span>
-            </label>
-            <button className={styles.button} type="submit">
-              Log in
-            </button>
-          </Form>
-        )}
       </section>
 
       {/* Screenshots */}
@@ -76,10 +69,10 @@ export default function App() {
         </div>
         <div className={styles.feature}>
           <div className={styles.featureIcon}>&#9202;</div>
-          <h3 className={styles.featureTitle}>Time-Based Filtering</h3>
+          <h3 className={styles.featureTitle}>Behaviour Checks</h3>
           <p className={styles.featureDesc}>
-            Blocks submissions made faster than a human can type. If the form is
-            submitted in under 2 seconds, it's spam.
+            Blocks submissions that arrive faster than a human can type, or with
+            no typing or clicking on the form at all.
           </p>
         </div>
         <div className={styles.feature}>
@@ -97,8 +90,9 @@ export default function App() {
         <h2 className={styles.videoTitle}>See it in action</h2>
         <div className={styles.videoWrapper}>
           <iframe
-            src="https://www.youtube.com/embed/_OeQXkoRNz8"
+            src="https://www.youtube-nocookie.com/embed/_OeQXkoRNz8"
             title="FormGuard demo"
+            loading="lazy"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
             className={styles.videoIframe}
@@ -112,15 +106,21 @@ export default function App() {
         <div className={styles.steps}>
           <div className={styles.step}>
             <div className={styles.stepNumber}>1</div>
-            <p className={styles.stepText}>Install FormGuard from the Shopify App Store</p>
+            <p className={styles.stepText}>
+              Install FormGuard from the Shopify App Store
+            </p>
           </div>
           <div className={styles.step}>
             <div className={styles.stepNumber}>2</div>
-            <p className={styles.stepText}>Enable the app embed in your theme settings</p>
+            <p className={styles.stepText}>
+              Enable the app embed in your theme settings
+            </p>
           </div>
           <div className={styles.step}>
             <div className={styles.stepNumber}>3</div>
-            <p className={styles.stepText}>Add blocked keywords and you're protected</p>
+            <p className={styles.stepText}>
+              Add blocked keywords and you&apos;re protected
+            </p>
           </div>
         </div>
       </section>
@@ -128,8 +128,15 @@ export default function App() {
       {/* Footer */}
       <footer className={styles.footer}>
         <ul className={styles.footerLinks}>
-          <li><a href="/privacy">Privacy Policy</a></li>
-          <li><a href="mailto:shettynick2@gmail.com">Support</a></li>
+          <li>
+            <a href="/privacy">Privacy Policy</a>
+          </li>
+          <li>
+            <a href="/auth/login">Merchant login</a>
+          </li>
+          <li>
+            <a href="mailto:shettynick2@gmail.com">Support</a>
+          </li>
         </ul>
       </footer>
     </div>

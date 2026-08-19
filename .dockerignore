@@ -1,3 +1,21 @@
 .cache
 build
 node_modules
+
+# Never bake local state or secrets into the image. prisma/dev.sqlite in
+# particular holds real dev-store session access tokens, and a copied .env would
+# be read by the Prisma CLI during `npm run setup`.
+.env
+.env.*
+prisma/*.sqlite
+prisma/*.sqlite-journal
+
+# Build context bloat, none of it used by the server build.
+.git
+.gitignore
+.shopify
+.react-router
+.agents
+.cursor
+.gemini
+*.md

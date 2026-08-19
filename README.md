@@ -1,25 +1,30 @@
 # FormGuard – Spam Blocker for Shopify Contact Forms
 
-FormGuard is a Shopify app that protects your store's contact form from spam submissions using three layers of detection — **honeypot fields**, **time-based analysis**, and **keyword filtering** — all without CAPTCHAs or third-party services.
+FormGuard is a Shopify app that protects your store's contact form from spam submissions using layered client-side detection — **honeypot fields**, **behaviour analysis**, and **keyword filtering** — all without CAPTCHAs or third-party services.
 
 ## How It Works
 
 FormGuard installs as a theme app extension that automatically attaches to your store's contact form. When a visitor submits the form, three checks run client-side before the submission is allowed through:
 
-1. **Honeypot** — An invisible field is injected into the form. Bots that auto-fill every field will trigger this trap.
-2. **Time-based detection** — Submissions that happen within 2 seconds of page load are flagged as bot behavior.
-3. **Keyword filtering** — Form content is checked against a merchant-defined blocklist of keywords (matched as whole words).
+1. **Honeypot** — An invisible field is injected into the form. Bots that auto-fill every field trigger the trap. The field is deliberately named so that browser autofill won't match it, since a filled trap silently discards a real customer's message.
+2. **Behaviour analysis** — A submission is flagged if it arrives within 2 seconds of page load, within 800ms of the visitor's first interaction with the form, or with no keyboard, pointer, or focus event on the form at all.
+3. **Keyword filtering** — Form content is checked against a merchant-defined blocklist. Plain words match on word boundaries, so "cialis" doesn't trip on "specialist"; phrases and email addresses match anywhere.
 
-Blocked submissions are silently prevented from reaching the store, and a non-specific message is shown to the user. All events (blocked and valid) are logged for the merchant to review in the app dashboard.
+Blocked submissions are prevented from reaching the store and a non-specific message is shown to the visitor. All events, blocked and valid, are logged for the merchant to review in the dashboard.
+
+### What this does and doesn't stop
+
+Every check runs in the visitor's browser, because Shopify owns the `/contact` endpoint and there is no server-side hook to intercept a submission before it is delivered. FormGuard therefore stops **automated browser form-fills**, which is the overwhelming majority of contact form spam. It does not stop a script that POSTs directly to `/contact` without loading the page, and it is not a defence against someone deliberately targeting a specific store.
 
 ## Features
 
 - **One-click enable/disable** toggle from the app dashboard
-- **Custom keyword blocklist** — add and remove blocked words per store
-- **7-day analytics** — view spam blocked vs. valid submissions with breakdowns by reason (honeypot, time, keyword)
+- **Custom keyword blocklist** — add and remove blocked words per store, up to 200
+- **7-day analytics** — spam blocked vs. valid submissions, block rate, breakdown by reason, and a log of recent blocks with the keyword that matched
 - **Zero-config setup** — install the app and enable the theme block, no code changes needed
 - **No CAPTCHAs** — invisible protection that doesn't degrade the customer experience
 - **Rate limiting** — event logging is rate-limited to 60 events per shop per minute
+- **Data retention** — spam events are pruned after 90 days; all shop data is deleted on uninstall
 
 ## Tech Stack
 
@@ -44,6 +49,7 @@ form-guard/
 │   │   ├── app.tsx                   # App shell layout
 │   │   └── webhooks.*.tsx            # Webhook handlers
 │   ├── shopify.server.ts            # Shopify auth & API configuration
+│   ├── shop-config.server.ts        # Per-shop cache of enabled flag + blocklist
 │   └── db.server.ts                 # Prisma client
 ├── extensions/
 │   └── formguard-block/

@@ -1,5 +1,6 @@
+import { useEffect } from "react";
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { Outlet, useLoaderData, useRouteError } from "react-router";
+import { Outlet, useNavigate, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
@@ -8,15 +9,28 @@ import { authenticate } from "../shopify.server";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   await authenticate.admin(request);
 
-  // eslint-disable-next-line no-undef
-  return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+  return null;
 };
 
 export default function App() {
-  const { apiKey } = useLoaderData<typeof loader>();
+  const navigate = useNavigate();
+
+  // AppProvider's own embedded mode injects app-bridge.js from the body, which
+  // root.tsx already loads in <head> where Shopify wants it. Mounting with
+  // embedded={false} keeps polaris.js without loading App Bridge twice, so this
+  // reproduces the one behaviour that came with it: routing s-link and
+  // s-app-nav clicks through the client-side router.
+  useEffect(() => {
+    const handleNavigate = (event: Event) => {
+      const href = (event.target as HTMLElement | null)?.getAttribute("href");
+      if (href) navigate(href);
+    };
+    document.addEventListener("shopify:navigate", handleNavigate);
+    return () => document.removeEventListener("shopify:navigate", handleNavigate);
+  }, [navigate]);
 
   return (
-    <AppProvider embedded apiKey={apiKey}>
+    <AppProvider embedded={false}>
       <s-app-nav>
         <s-link href="/app">Dashboard</s-link>
       </s-app-nav>
