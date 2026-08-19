@@ -49,6 +49,11 @@ model SpamEvent {
   createdAt DateTime @default(now())
 
   @@index([shop, createdAt, isSpam])
+  // The retention prune filters on createdAt alone, which is not a prefix of the
+  // index above, so without this it full-scans the table every hour. The
+  // 20260322172654 migration rebuilt this table and dropped the standalone
+  // createdAt index that used to exist.
+  @@index([createdAt])
 }
 
 model Setting {
