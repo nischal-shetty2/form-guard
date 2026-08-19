@@ -1,6 +1,7 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { getShopConfig } from "../shop-config.server";
 
 // Record (at most once per hour per shop) that the storefront embed loaded and
 // found a contact form, so the admin dashboard can show whether protection is
@@ -8,8 +9,21 @@ import prisma from "../db.server";
 // the embed once a contact form is detected on the page.
 const SEEN_INTERVAL_MS = 60 * 60 * 1000;
 const lastSeenWrites = new Map<string, number>();
+
+// Sweep at most once per interval so the map can't grow unbounded as the number
+// of shops that have ever served a contact page accumulates.
+let lastSweep = 0;
+function sweepSeenWrites(now: number) {
+  if (now - lastSweep < SEEN_INTERVAL_MS) return;
+  lastSweep = now;
+  for (const [shop, at] of lastSeenWrites) {
+    if (now - at >= SEEN_INTERVAL_MS) lastSeenWrites.delete(shop);
+  }
+}
+
 async function recordSeen(shop: string) {
   const now = Date.now();
+  sweepSeenWrites(now);
   if (now - (lastSeenWrites.get(shop) || 0) < SEEN_INTERVAL_MS) return;
   lastSeenWrites.set(shop, now);
   try {
@@ -20,6 +34,8 @@ async function recordSeen(shop: string) {
     });
   } catch {
     // Best-effort heartbeat; never block the storefront on a failed write.
+    // Clear the throttle so the next request retries instead of waiting an hour.
+    lastSeenWrites.delete(shop);
   }
 }
 
@@ -34,19 +50,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   void recordSeen(shop);
 
-  const [enabledSetting, keywords] = await Promise.all([
-    prisma.setting.findUnique({
-      where: { shop_key: { shop, key: "enabled" } },
-    }),
-    prisma.keyword.findMany({ where: { shop } }),
-  ]);
+  const config = await getShopConfig(shop);
 
-  if (enabledSetting && enabledSetting.value === "false") {
+  if (!config.enabled) {
     return Response.json({ enabled: false, keywords: [] });
   }
 
   return Response.json({
     enabled: true,
-    keywords: keywords.map((k) => k.word),
+    keywords: config.keywords,
   });
 };

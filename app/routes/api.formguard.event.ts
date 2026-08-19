@@ -1,6 +1,7 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { getShopConfig } from "../shop-config.server";
 
 // Per-shop rate limiter: max 60 events per shop per minute
 const EVENT_WINDOW_MS = 60_000;
@@ -55,13 +56,36 @@ async function pruneOldEvents(now: number) {
   }
 }
 
+const FIXED_REASONS = ["honeypot", "time", "nointeraction", "valid", "unknown"];
+const KEYWORD_PREFIX = "keyword:";
+
+/**
+ * Shopify signs whatever query params the browser sends, so a valid app proxy
+ * signature proves the request came through the proxy, not that its values are
+ * honest. Any storefront visitor can call this endpoint directly and, up to the
+ * rate limit, inflate the counters or push arbitrary strings into the
+ * dashboard's "Top Blocked Keywords" list. Keyword reasons are therefore checked
+ * against the shop's actual blocklist, which is already cached for the keywords
+ * endpoint so this costs no extra query in the common case.
+ */
+async function isReasonAllowed(shop: string, reason: string) {
+  if (FIXED_REASONS.includes(reason)) return true;
+  if (!reason.startsWith(KEYWORD_PREFIX)) return false;
+
+  const word = reason.slice(KEYWORD_PREFIX.length);
+  if (!word) return false;
+
+  const config = await getShopConfig(shop);
+  return config.keywords.includes(word);
+}
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   await authenticate.public.appProxy(request);
 
   const url = new URL(request.url);
   const shop = url.searchParams.get("shop") || "";
   if (!shop) {
-    return Response.json({ success: false });
+    return Response.json({ success: false }, { status: 400 });
   }
 
   if (isRateLimited(shop)) {
@@ -72,20 +96,19 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const rawReason = url.searchParams.get("reason") || "unknown";
   const reason = rawReason.slice(0, 200);
 
-  const validReasons = [
-    "honeypot",
-    "time",
-    "nointeraction",
-    "valid",
-    "unknown",
-  ];
-  if (!validReasons.includes(reason) && !reason.startsWith("keyword:")) {
-    return Response.json({ success: false });
+  if (!(await isReasonAllowed(shop, reason))) {
+    return Response.json({ success: false }, { status: 400 });
   }
 
-  await prisma.spamEvent.create({
-    data: { shop, isSpam, reason },
-  });
+  try {
+    await prisma.spamEvent.create({
+      data: { shop, isSpam, reason },
+    });
+  } catch {
+    // The storefront treats this as fire-and-forget, so a failed write should
+    // not surface as a 500 in the merchant's logs for every submission.
+    return Response.json({ success: false }, { status: 200 });
+  }
 
   void pruneOldEvents(Date.now());
 

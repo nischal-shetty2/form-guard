@@ -9,6 +9,7 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import prisma from "../db.server";
+import { invalidateShopConfig } from "../shop-config.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -128,6 +129,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       break;
     }
   }
+
+  // Both the toggle and the blocklist are served to the storefront from a cached
+  // per-shop config, so a merchant's change has to drop that entry to take
+  // effect before the TTL expires.
+  invalidateShopConfig(shop);
 
   return { success: true };
 };
