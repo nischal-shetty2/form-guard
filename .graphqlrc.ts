@@ -1,6 +1,6 @@
 import fs from "fs";
-import { ApiVersion } from "@shopify/shopify-app-react-router/server";
 import { shopifyApiProject, ApiType } from "@shopify/api-codegen-preset";
+import { API_VERSION } from "./app/api-version.server";
 import type { IGraphQLConfig } from "graphql-config";
 
 function getConfig() {
@@ -8,7 +8,7 @@ function getConfig() {
     projects: {
       default: shopifyApiProject({
         apiType: ApiType.Admin,
-        apiVersion: ApiVersion.October25,
+        apiVersion: API_VERSION,
         documents: ["./app/**/*.{js,ts,jsx,tsx}", "./app/.server/**/*.{js,ts,jsx,tsx}"],
         outputDir: "./app/types",
       }),

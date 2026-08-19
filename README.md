@@ -123,4 +123,8 @@ The proxy is configured under the path `apps/formguard` in `shopify.app.toml`.
 
 ## License
 
-Private — not published.
+FormGuard's own code is proprietary: all rights reserved, not offered for reuse
+or redistribution. The project was generated from Shopify's MIT-licensed
+[React Router app template](https://github.com/Shopify/shopify-app-template-react-router)
+and still contains files from it, which keep their MIT license. Both notices are
+in [LICENSE](LICENSE).

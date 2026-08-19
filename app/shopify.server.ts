@@ -1,11 +1,11 @@
 import "@shopify/shopify-app-react-router/adapters/node";
 import {
-  ApiVersion,
   AppDistribution,
   type Session,
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
+import { API_VERSION } from "./api-version.server";
 import prisma from "./db.server";
 
 const prismaSessionStorage = new PrismaSessionStorage(prisma);
@@ -27,7 +27,7 @@ const sessionStorageAdapter = {
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
-  apiVersion: ApiVersion.October25,
+  apiVersion: API_VERSION,
   // "".split(",") is [""], not [], which reads as a single empty scope.
   scopes: process.env.SCOPES?.split(",").filter(Boolean),
   appUrl: process.env.SHOPIFY_APP_URL || "",
@@ -35,6 +35,9 @@ const shopify = shopifyApp({
   sessionStorage: sessionStorageAdapter,
   distribution: AppDistribution.AppStore,
   future: {
+    // Offline tokens are issued with an expiry and refreshed from the
+    // refreshToken on the Session row. Turning this off would leave those
+    // columns unused and go back to non-expiring tokens.
     expiringOfflineAccessTokens: true,
   },
   ...(process.env.SHOP_CUSTOM_DOMAIN
@@ -43,10 +46,8 @@ const shopify = shopifyApp({
 });
 
 export default shopify;
-export const apiVersion = ApiVersion.October25;
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
 export const authenticate = shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;
 export const login = shopify.login;
-export const registerWebhooks = shopify.registerWebhooks;
 export const sessionStorage = shopify.sessionStorage;
