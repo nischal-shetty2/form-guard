@@ -72,7 +72,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const rawReason = url.searchParams.get("reason") || "unknown";
   const reason = rawReason.slice(0, 200);
 
-  const validReasons = ["honeypot", "time", "valid", "unknown"];
+  const validReasons = [
+    "honeypot",
+    "time",
+    "nointeraction",
+    "valid",
+    "unknown",
+  ];
   if (!validReasons.includes(reason) && !reason.startsWith("keyword:")) {
     return Response.json({ success: false });
   }

@@ -1,5 +1,12 @@
+{%- comment -%}
+  Root-relative proxy path on purpose. shop.url always resolves to the store's
+  primary domain, so on a secondary or market-specific domain the fetch would be
+  cross-origin, get blocked by CORS, and silently disable keyword filtering and
+  event logging. App proxy paths are not localized, so "/apps/formguard" is
+  correct on every domain the storefront is served from.
+{%- endcomment -%}
 <div id="formguard-wrapper" style="display:none;"
-  data-proxy-url="{{ shop.url }}/apps/formguard"
+  data-proxy-url="/apps/formguard"
   {{ block.shopify_attributes }}>
 </div>
 
