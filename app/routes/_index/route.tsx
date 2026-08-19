@@ -13,16 +13,22 @@ const DESCRIPTION =
 // fallback for local dev.
 export const meta: MetaFunction<typeof loader> = ({ data }) => {
   const origin = data?.origin ?? "";
-  return [
+  const tags = [
     { title: TITLE },
     { name: "description", content: DESCRIPTION },
     { property: "og:title", content: TITLE },
     { property: "og:description", content: DESCRIPTION },
     { property: "og:type", content: "website" },
-    { property: "og:url", content: origin || "/" },
-    { property: "og:image", content: `${origin}/listing1.png` },
     { name: "twitter:card", content: "summary_large_image" },
   ];
+  // Absolute or absent, both of them. A relative og:url is dropped for the same
+  // reason a relative og:image is, so emitting one built on an empty origin just
+  // reintroduces the bug in the other tag.
+  if (origin) {
+    tags.push({ property: "og:url", content: origin });
+    tags.push({ property: "og:image", content: `${origin}/listing1.png` });
+  }
+  return tags;
 };
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {

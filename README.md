@@ -7,7 +7,7 @@ FormGuard is a Shopify app that protects your store's contact form from spam sub
 FormGuard installs as a theme app extension that automatically attaches to your store's contact form. When a visitor submits the form, three checks run client-side before the submission is allowed through:
 
 1. **Honeypot** — An invisible field is injected into the form. Bots that auto-fill every field trigger the trap. The field is deliberately named so that browser autofill won't match it, since a filled trap silently discards a real customer's message.
-2. **Behaviour analysis** — A submission is flagged if it arrives within 2 seconds of page load, within 800ms of the visitor's first interaction with the form, or with no keyboard, pointer, or focus event on the form at all.
+2. **Behaviour analysis** — A submission is flagged if it arrives within 2 seconds of page load, within 800ms of the visitor's first interaction with the form, or with no keyboard, pointer, or focus event anywhere on the page.
 3. **Keyword filtering** — Form content is checked against a merchant-defined blocklist. Plain words match on word boundaries, so "cialis" doesn't trip on "specialist"; phrases and email addresses match anywhere.
 
 Blocked submissions are prevented from reaching the store and a non-specific message is shown to the visitor. All events, blocked and valid, are logged for the merchant to review in the dashboard.

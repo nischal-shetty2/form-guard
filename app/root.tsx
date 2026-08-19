@@ -65,17 +65,14 @@ export default function App() {
 export function ErrorBoundary() {
   const error = useRouteError();
 
-  // Only route error responses carry a message that's safe to render. Anything
-  // else could be an exception with internal detail in it.
+  // Status and statusText only. React Router puts its own diagnostics in
+  // error.data -- a 404 carries `Error: No route matches URL "/whatever"` --
+  // so rendering that echoed the requested path back onto a public page, and
+  // for a thrown exception it could be internal detail.
   const status = isRouteErrorResponse(error) ? error.status : 500;
   const title = isRouteErrorResponse(error)
     ? error.statusText || "Something went wrong"
     : "Something went wrong";
-  const detail = isRouteErrorResponse(error)
-    ? typeof error.data === "string"
-      ? error.data
-      : ""
-    : "";
 
   return (
     <main
@@ -91,7 +88,6 @@ export function ErrorBoundary() {
       <h1 style={{ fontSize: "1.5rem", margin: "0 0 0.5rem" }}>
         {status} — {title}
       </h1>
-      {detail && <p style={{ color: "#555" }}>{detail}</p>}
       <p style={{ color: "#555" }}>
         Try reloading the page. If it keeps happening, email{" "}
         <a href="mailto:shettynick2@gmail.com">shettynick2@gmail.com</a>.
