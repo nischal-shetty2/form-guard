@@ -27,7 +27,7 @@ const sessionStorageAdapter = {
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
-  apiVersion: ApiVersion.October25,
+  apiVersion: ApiVersion.April26,
   // "".split(",") is [""], not [], which reads as a single empty scope.
   scopes: process.env.SCOPES?.split(",").filter(Boolean),
   appUrl: process.env.SHOPIFY_APP_URL || "",
@@ -43,7 +43,9 @@ const shopify = shopifyApp({
 });
 
 export default shopify;
-export const apiVersion = ApiVersion.October25;
+// Kept in step with the api_version in shopify.app.toml and the theme
+// extension, so webhook payloads and the client target the same version.
+export const apiVersion = ApiVersion.April26;
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
 export const authenticate = shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;

@@ -123,4 +123,5 @@ The proxy is configured under the path `apps/formguard` in `shopify.app.toml`.
 
 ## License
 
-Private — not published.
+No license granted. The source is public to read, but all rights are reserved.
+It is not offered for reuse or redistribution.

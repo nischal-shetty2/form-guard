@@ -124,8 +124,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     .slice(0, 5)
     .map(([word, count]) => ({ word, count }));
 
-  // Relative labels are computed here rather than in render so the server and
-  // client agree on the string and hydration stays clean.
+  // Labels are computed here rather than in render so the server and client
+  // agree on the first paint and hydration stays clean. RelativeTime then takes
+  // over on the client and keeps them from going stale.
   const now = Date.now();
   const recentEvents = recentBlocks.map((event) => {
     const isKeyword = event.reason.startsWith(KEYWORD_PREFIX);
@@ -133,6 +134,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       id: event.id,
       label: isKeyword ? REASON_LABELS.keyword : reasonLabel(event.reason),
       detail: isKeyword ? event.reason.slice(KEYWORD_PREFIX.length) : "",
+      at: event.createdAt.toISOString(),
       when: relativeTime(event.createdAt, now),
     };
   });
@@ -260,6 +262,26 @@ export const action = async ({
       return { ok: false, intent, error: "Unknown action." };
   }
 };
+
+/**
+ * Renders the loader's label verbatim on first paint, so SSR and hydration match
+ * exactly, then recomputes on the client and every minute after. Without the
+ * tick, a dashboard left open overnight still claims the last block was "2h
+ * ago"; without the server label as the initial value, computing on the client
+ * would mismatch during hydration.
+ */
+function RelativeTime({ iso, initial }: { iso: string; initial: string }) {
+  const [label, setLabel] = useState(initial);
+
+  useEffect(() => {
+    const tick = () => setLabel(relativeTime(new Date(iso), Date.now()));
+    tick();
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, [iso]);
+
+  return <time dateTime={iso}>{label}</time>;
+}
 
 export default function Index() {
   const {
@@ -661,7 +683,9 @@ export default function Index() {
                     )}
                   </s-table-cell>
                   <s-table-cell>
-                    <s-text color="subdued">{event.when}</s-text>
+                    <s-text color="subdued">
+                      <RelativeTime iso={event.at} initial={event.when} />
+                    </s-text>
                   </s-table-cell>
                 </s-table-row>
               ))}
