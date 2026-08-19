@@ -7,15 +7,23 @@ const TITLE = "FormGuard — Block Shopify contact form spam";
 const DESCRIPTION =
   "FormGuard stops automated spam on your Shopify contact form with three invisible checks. No captcha, no friction for your customers, free forever.";
 
-export const meta: MetaFunction = () => [
-  { title: TITLE },
-  { name: "description", content: DESCRIPTION },
-  { property: "og:title", content: TITLE },
-  { property: "og:description", content: DESCRIPTION },
-  { property: "og:type", content: "website" },
-  { property: "og:image", content: "/listing1.png" },
-  { name: "twitter:card", content: "summary_large_image" },
-];
+// Crawlers resolve og:image against nothing, so a root-relative path is dropped
+// and the card renders with no image at all. SHOPIFY_APP_URL is the canonical
+// public origin and is already required for OAuth; the request origin is the
+// fallback for local dev.
+export const meta: MetaFunction<typeof loader> = ({ data }) => {
+  const origin = data?.origin ?? "";
+  return [
+    { title: TITLE },
+    { name: "description", content: DESCRIPTION },
+    { property: "og:title", content: TITLE },
+    { property: "og:description", content: DESCRIPTION },
+    { property: "og:type", content: "website" },
+    { property: "og:url", content: origin || "/" },
+    { property: "og:image", content: `${origin}/listing1.png` },
+    { name: "twitter:card", content: "summary_large_image" },
+  ];
+};
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
@@ -24,7 +32,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     throw redirect(`/app?${url.searchParams.toString()}`);
   }
 
-  return null;
+  return {
+    origin: (process.env.SHOPIFY_APP_URL || url.origin).replace(/\/+$/, ""),
+  };
 };
 
 export default function App() {
