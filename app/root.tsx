@@ -5,7 +5,9 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
-  useLoaderData,
+  isRouteErrorResponse,
+  useRouteError,
+  useRouteLoaderData,
 } from "react-router";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -16,8 +18,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   };
 };
 
-export default function App() {
-  const { apiKey, isAdminRoute } = useLoaderData<typeof loader>();
+// Layout wraps both the app and the error boundary, so a thrown error still
+// renders inside a complete document instead of React Router's bare fallback.
+// It reads the loader data defensively because that loader may not have run.
+export function Layout({ children }: { children: React.ReactNode }) {
+  const data = useRouteLoaderData<typeof loader>("root");
+  const apiKey = data?.apiKey ?? "";
+  const isAdminRoute = data?.isAdminRoute ?? false;
 
   return (
     <html lang="en">
@@ -26,23 +33,68 @@ export default function App() {
         <meta name="viewport" content="width=device-width,initial-scale=1" />
         {isAdminRoute && (
           <>
+            {/* App Bridge has to load from the CDN in <head> for embedded
+                routes. AppProvider in app.tsx is therefore mounted with
+                embedded={false} so it only injects polaris.js and doesn't
+                load this same script a second time from the body. */}
             <meta name="shopify-api-key" content={apiKey} />
             <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+            <link rel="preconnect" href="https://cdn.shopify.com/" />
+            <link
+              rel="stylesheet"
+              href="https://cdn.shopify.com/static/fonts/inter/v4/styles.css"
+            />
           </>
         )}
-        <link rel="preconnect" href="https://cdn.shopify.com/" />
-        <link
-          rel="stylesheet"
-          href="https://cdn.shopify.com/static/fonts/inter/v4/styles.css"
-        />
         <Meta />
         <Links />
       </head>
       <body>
-        <Outlet />
+        {children}
         <ScrollRestoration />
         <Scripts />
       </body>
     </html>
+  );
+}
+
+export default function App() {
+  return <Outlet />;
+}
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+
+  // Status and statusText only. React Router puts its own diagnostics in
+  // error.data -- a 404 carries `Error: No route matches URL "/whatever"` --
+  // so rendering that echoed the requested path back onto a public page, and
+  // for a thrown exception it could be internal detail.
+  const status = isRouteErrorResponse(error) ? error.status : 500;
+  const title = isRouteErrorResponse(error)
+    ? error.statusText || "Something went wrong"
+    : "Something went wrong";
+
+  return (
+    <main
+      style={{
+        maxWidth: "480px",
+        margin: "0 auto",
+        padding: "4rem 1.5rem",
+        fontFamily: "system-ui, sans-serif",
+        lineHeight: 1.6,
+        textAlign: "center",
+      }}
+    >
+      <h1 style={{ fontSize: "1.5rem", margin: "0 0 0.5rem" }}>
+        {status} — {title}
+      </h1>
+      <p style={{ color: "#555" }}>
+        Try reloading the page. If it keeps happening, email{" "}
+        <a href="mailto:shettynick2@gmail.com">shettynick2@gmail.com</a>.
+      </p>
+      <p>
+        <a href="/">Back to home</a>
+      </p>
+    </main>
   );
 }

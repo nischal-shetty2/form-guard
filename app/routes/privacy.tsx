@@ -1,9 +1,22 @@
+import type { MetaFunction } from "react-router";
+
+const TITLE = "Privacy Policy — FormGuard";
+const DESCRIPTION =
+  "How FormGuard handles merchant and customer data. No customer personal data is collected or stored.";
+
+export const meta: MetaFunction = () => [
+  { title: TITLE },
+  { name: "description", content: DESCRIPTION },
+  { property: "og:title", content: TITLE },
+  { property: "og:description", content: DESCRIPTION },
+];
+
 export default function Privacy() {
   return (
     <div style={{ maxWidth: "680px", margin: "0 auto", padding: "2rem 1rem", fontFamily: "system-ui, sans-serif", lineHeight: 1.7 }}>
       <h1>Privacy Policy</h1>
       <p><strong>FormGuard</strong> — Contact Form Spam Blocker</p>
-      <p><em>Last updated: March 2026</em></p>
+      <p><em>Last updated: August 2026</em></p>
 
       <h2>What we collect</h2>
       <p>
@@ -34,9 +47,9 @@ export default function Privacy() {
 
       <h2>Data retention</h2>
       <p>
-        Anonymous spam event records are retained indefinitely for analytics purposes.
-        When a merchant uninstalls the app, all their data (keywords, settings, and spam events)
-        is permanently deleted.
+        Anonymous spam event records are automatically deleted after 90 days. The dashboard
+        only ever reports on the last 7 days. When a merchant uninstalls the app, all their
+        data (keywords, settings, and spam events) is permanently deleted immediately.
       </p>
 
       <h2>GDPR compliance</h2>
