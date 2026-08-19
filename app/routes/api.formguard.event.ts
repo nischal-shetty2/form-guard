@@ -1,6 +1,7 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { proxyShop } from "../app-proxy.server";
 import { getShopConfig } from "../shop-config.server";
 
 // Per-shop rate limiter: max 60 events per shop per minute
@@ -46,12 +47,17 @@ const PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 let lastPrune = 0;
 async function pruneOldEvents(now: number) {
   if (now - lastPrune < PRUNE_INTERVAL_MS) return;
+  // Claim the window before awaiting so concurrent events don't all start a
+  // prune, then hand it back on failure so the next event retries instead of
+  // waiting out the full hour.
+  const previous = lastPrune;
   lastPrune = now;
   try {
     await prisma.spamEvent.deleteMany({
       where: { createdAt: { lt: new Date(now - RETENTION_MS) } },
     });
   } catch (error) {
+    lastPrune = previous;
     // Best-effort cleanup; never block an event on a failed prune.
     console.error("formguard: retention prune failed", error);
   }
@@ -91,7 +97,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   await authenticate.public.appProxy(request);
 
   const url = new URL(request.url);
-  const shop = url.searchParams.get("shop") || "";
+  const shop = proxyShop(url);
   if (!shop) {
     return Response.json({ success: false }, { status: 400 });
   }
