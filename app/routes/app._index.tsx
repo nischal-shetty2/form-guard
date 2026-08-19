@@ -8,6 +8,7 @@ import { useLoaderData, useFetcher } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
+import { Prisma } from "@prisma/client";
 import prisma from "../db.server";
 import { invalidateShopConfig } from "../shop-config.server";
 
@@ -196,19 +197,20 @@ export const action = async ({
         };
       }
 
-      const existing = await prisma.keyword.findUnique({
-        where: { shop_word: { shop, word } },
-        select: { id: true },
-      });
+      const duplicateError = `"${word}" is already in your blocked list.`;
+
+      const [existing, count] = await Promise.all([
+        prisma.keyword.findUnique({
+          where: { shop_word: { shop, word } },
+          select: { id: true },
+        }),
+        prisma.keyword.count({ where: { shop } }),
+      ]);
+
       if (existing) {
-        return {
-          ok: false,
-          intent,
-          error: `"${word}" is already in your blocked list.`,
-        };
+        return { ok: false, intent, error: duplicateError };
       }
 
-      const count = await prisma.keyword.count({ where: { shop } });
       if (count >= KEYWORD_LIMIT) {
         return {
           ok: false,
@@ -217,7 +219,21 @@ export const action = async ({
         };
       }
 
-      await prisma.keyword.create({ data: { shop, word } });
+      try {
+        await prisma.keyword.create({ data: { shop, word } });
+      } catch (error) {
+        // The same word can land from another tab between the check above and
+        // this write. That is the unique index doing its job, not a failure
+        // worth a 500.
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2002"
+        ) {
+          return { ok: false, intent, error: duplicateError };
+        }
+        throw error;
+      }
+
       invalidateShopConfig(shop);
       return { ok: true, intent, message: `"${word}" blocked` };
     }
@@ -263,6 +279,11 @@ export default function Index() {
     pendingIntent === "removeKeyword" ? fetcher.formData?.get("id") : null;
   const busy = fetcher.state !== "idle";
 
+  // A removable chip hides itself the moment its remove button is pressed. If
+  // the server then rejects the removal the keyword is still on the list, so
+  // bumping this remounts the chips rather than leaving an invisible one behind.
+  const [chipGeneration, setChipGeneration] = useState(0);
+
   // The toggle is the slowest-feeling control because the label only changes
   // once the loader revalidates, so show the target state while it's in flight.
   const shownEnabled = pendingIntent === "toggle" ? !enabled : enabled;
@@ -284,7 +305,12 @@ export default function Index() {
     // the merchant can act on them rather than reporting a phantom success.
     if (result.intent === "addKeyword") {
       setKeywordError(result.error || "Could not add that keyword.");
-    } else if (result.error) {
+      return;
+    }
+    if (result.intent === "removeKeyword") {
+      setChipGeneration((n) => n + 1);
+    }
+    if (result.error) {
       shopify.toast.show(result.error, { isError: true });
     }
   }, [fetcher.data, shopify]);
@@ -578,14 +604,22 @@ export default function Index() {
             <s-stack direction="inline" gap="small-300">
               {keywords.map((keyword) => (
                 <s-clickable-chip
-                  key={keyword.id}
+                  key={`${keyword.id}-${chipGeneration}`}
                   removable
                   disabled={
                     busy && pendingRemoveId === String(keyword.id)
                       ? true
                       : undefined
                   }
-                  onRemove={() => handleRemoveKeyword(keyword.id)}
+                  // React 18 drops function props it doesn't recognise as one
+                  // of its own synthetic events, and "remove" isn't one, so an
+                  // onRemove prop here would silently never fire and the
+                  // keyword would be undeletable. Assign the element's own
+                  // handler property instead. Setting both would double-fire
+                  // under React 19.
+                  ref={(el) => {
+                    if (el) el.onremove = () => handleRemoveKeyword(keyword.id);
+                  }}
                 >
                   {keyword.word}
                 </s-clickable-chip>
