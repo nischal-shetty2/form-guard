@@ -1,4 +1,6 @@
 FROM node:20-alpine
+# Prisma needs OpenSSL at runtime to pick its query engine on Alpine; without
+# it the client fails to start (prisma/prisma#25817).
 RUN apk add --no-cache openssl
 
 EXPOSE 3000

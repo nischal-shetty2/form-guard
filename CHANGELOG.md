@@ -1,12 +1,9 @@
 # Changelog
 
+Nothing here is tagged. The app deploys from `main` to Fly, so entries stay under
+Unreleased and the section gets dated when it ships.
+
 ## Unreleased
-
-- Dashboard timestamps in Recent Blocks refresh on the client instead of freezing at their server-rendered value.
-- `apiVersion` aligned with the `2026-04` declared in `shopify.app.toml` and the theme extension.
-- Explicit favicon link; corrected the License section.
-
-## 2026-08-20
 
 Storefront detection:
 
@@ -32,6 +29,7 @@ Admin:
 - Actions report real outcomes instead of always claiming success, and every control has a pending state.
 - Added a Recent Blocks log, a block rate, and merchant-facing reason labels.
 - Keyword blocklist capped at 200, enforced inside the insert transaction.
+- Recent Blocks timestamps no longer freeze at their server-rendered value. One page timer drives every row, anchored to the server's clock rather than the browser's, and the loader revalidates on the same beat so the rows behind the labels move too.
 
 Public pages and infra:
 
@@ -40,7 +38,10 @@ Public pages and infra:
 - `.dockerignore` stops baking `.env` and `prisma/dev.sqlite` into the production image.
 - Added `/healthz` and a Fly health check.
 - Privacy policy retention text corrected to match the 90-day prune.
+- `favicon.ico` is a real 16/32/48/64 icon again, built from the logo. It had been overwritten with a 300KB PNG behind an `.ico` extension, which browsers served as the wrong content type and pulled on every page view.
+- Admin API version lives in `app/api-version.server.ts` and is shared with the codegen config, which had been left on `2025-10` while everything else moved to `2026-04`.
+- Added `LICENSE`: all rights reserved for FormGuard's own code, with the upstream Shopify template's MIT notice retained as that license requires.
 
 ## Earlier
 
-This app started from the [Shopify React Router app template](https://github.com/Shopify/shopify-app-template-react-router). Template history is not tracked here.
+This app started from the [Shopify React Router app template](https://github.com/Shopify/shopify-app-template-react-router). Template history is not tracked here; the two settings that history explained now carry their own comments, at `future.expiringOfflineAccessTokens` in `app/shopify.server.ts` and the `openssl` install in the `Dockerfile`.

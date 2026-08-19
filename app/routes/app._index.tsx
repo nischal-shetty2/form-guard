@@ -4,7 +4,7 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
-import { useLoaderData, useFetcher } from "react-router";
+import { useLoaderData, useFetcher, useRevalidator } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -37,7 +37,12 @@ function reasonLabel(reason: string) {
 }
 
 function relativeTime(from: Date, now: number) {
-  const minutes = Math.floor(Math.max(0, now - from.getTime()) / 60_000);
+  const elapsed = now - from.getTime();
+  // An unparseable date gives NaN, and Math.max(0, NaN) is NaN rather than 0,
+  // so without this guard every comparison below is false and the merchant
+  // reads "NaNd ago".
+  if (!Number.isFinite(elapsed)) return "";
+  const minutes = Math.floor(Math.max(0, elapsed) / 60_000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
@@ -124,10 +129,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     .slice(0, 5)
     .map(([word, count]) => ({ word, count }));
 
-  // Labels are computed here rather than in render so the server and client
-  // agree on the first paint and hydration stays clean. RelativeTime then takes
-  // over on the client and keeps them from going stale.
-  const now = Date.now();
+  // The "when" labels are rendered from serverNow rather than from each
+  // client's own clock, so a merchant whose machine is hours off still reads
+  // the same thing the server would have written, and SSR and hydration agree.
+  const serverNow = Date.now();
   const recentEvents = recentBlocks.map((event) => {
     const isKeyword = event.reason.startsWith(KEYWORD_PREFIX);
     return {
@@ -135,7 +140,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       label: isKeyword ? REASON_LABELS.keyword : reasonLabel(event.reason),
       detail: isKeyword ? event.reason.slice(KEYWORD_PREFIX.length) : "",
       at: event.createdAt.toISOString(),
-      when: relativeTime(event.createdAt, now),
     };
   });
 
@@ -150,6 +154,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     reasonCounts,
     topKeywords,
     recentEvents,
+    serverNow,
   };
 };
 
@@ -263,24 +268,64 @@ export const action = async ({
   }
 };
 
+const TICK_MS = 60_000;
+
 /**
- * Renders the loader's label verbatim on first paint, so SSR and hydration match
- * exactly, then recomputes on the client and every minute after. Without the
- * tick, a dashboard left open overnight still claims the last block was "2h
- * ago"; without the server label as the initial value, computing on the client
- * would mismatch during hydration.
+ * One timer for the whole page, and a "now" every consumer shares.
+ *
+ * Two things it deliberately does not do. It never reads the browser clock as
+ * an absolute: that clock can be minutes or days off, and recomputing a
+ * correct "10m ago" against a laptop running three hours behind turns it into
+ * "just now". Only the delta between two Date.now() readings is trusted, added
+ * to the server's clock. And it does not tick labels in isolation: the rows
+ * behind them are fetched once, so a label counting up to "9h ago" over frozen
+ * data reads as "nothing was blocked in 9 hours" when it means "nothing has
+ * been fetched in 9 hours". Revalidating on the same beat moves both.
  */
-function RelativeTime({ iso, initial }: { iso: string; initial: string }) {
-  const [label, setLabel] = useState(initial);
+function usePageClock(serverNow: number) {
+  const [now, setNow] = useState(serverNow);
+  const { revalidate } = useRevalidator();
+
+  // revalidate is a new function each time the revalidator changes state, so
+  // read it through a ref rather than letting an in-flight load restart the
+  // interval it was started by.
+  const revalidateRef = useRef(revalidate);
+  revalidateRef.current = revalidate;
 
   useEffect(() => {
-    const tick = () => setLabel(relativeTime(new Date(iso), Date.now()));
-    tick();
-    const id = setInterval(tick, 60_000);
+    // Re-anchored to each batch of loader data. The gap includes the request's
+    // own latency, which only ever makes a label round down.
+    const skew = serverNow - Date.now();
+    const id = setInterval(() => {
+      setNow(Date.now() + skew);
+      // A hidden tab has nobody reading it, and its timers are throttled
+      // anyway; the visibility listener below catches it up on return.
+      if (document.visibilityState === "visible") revalidateRef.current();
+    }, TICK_MS);
     return () => clearInterval(id);
-  }, [iso]);
+  }, [serverNow]);
 
-  return <time dateTime={iso}>{label}</time>;
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") revalidateRef.current();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
+  // A revalidation lands a newer reading of the server's clock than the last
+  // tick has, so it wins until the next one.
+  return Math.max(now, serverNow);
+}
+
+/**
+ * No state and no timer of its own: the label is a pure function of the row's
+ * timestamp and the page clock. The clock starts at the loader's `serverNow`,
+ * so the first client render reproduces the server's markup exactly and
+ * hydration stays clean.
+ */
+function RelativeTime({ iso, now }: { iso: string; now: number }) {
+  return <time dateTime={iso}>{relativeTime(new Date(iso), now)}</time>;
 }
 
 export default function Index() {
@@ -295,7 +340,9 @@ export default function Index() {
     reasonCounts,
     topKeywords,
     recentEvents,
+    serverNow,
   } = useLoaderData<typeof loader>();
+  const now = usePageClock(serverNow);
   const fetcher = useFetcher<ActionResult>();
   const shopify = useAppBridge();
   const keywordInputRef = useRef<HTMLInputElement | null>(null);
@@ -684,7 +731,7 @@ export default function Index() {
                   </s-table-cell>
                   <s-table-cell>
                     <s-text color="subdued">
-                      <RelativeTime iso={event.at} initial={event.when} />
+                      <RelativeTime iso={event.at} now={now} />
                     </s-text>
                   </s-table-cell>
                 </s-table-row>
