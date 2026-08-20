@@ -16,6 +16,11 @@ RUN npm ci && npm cache clean --force
 
 COPY . .
 
-RUN npx prisma generate && npm run build && npm prune --omit=dev
+# prisma generate runs last, after the prune, so the generated client is
+# guaranteed to survive into the final image. That lets the container start with
+# only `prisma migrate deploy`: generating on every boot re-did build work on a
+# shared-cpu-1x, delaying the port opening by tens of seconds, which is long
+# enough for a Shopify webhook to time out on a cold machine.
+RUN npm run build && npm prune --omit=dev && npx prisma generate
 
 CMD ["npm", "run", "docker-start"]
