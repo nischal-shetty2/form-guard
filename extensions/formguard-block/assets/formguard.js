@@ -272,6 +272,49 @@
     }
   }
 
+  // Only controls a visitor can type into. Scanning FormData swept up every
+  // hidden field with it: Shopify's contact form ships form_type=contact and
+  // utf8, and themes add their own (shop domain, return path). A merchant who
+  // blocked "contact", or their own brand name, would have matched
+  // keyword:<word> on every genuine submission and never seen a real message
+  // again. Select and checkbox values are excluded for the same reason -- they
+  // are theme-authored tokens, not visitor text.
+  var SCANNED_TYPES = {
+    textarea: true,
+    text: true,
+    email: true,
+    tel: true,
+    url: true,
+    search: true,
+    number: true
+  };
+
+  function visitorText(form) {
+    var text = "";
+    var elements = form.elements || [];
+
+    for (var i = 0; i < elements.length; i++) {
+      var el = elements[i];
+      // Identity check rather than name: this is our own trap, and a filled one
+      // has already returned above.
+      if (el === honeypotField) continue;
+
+      var tag = (el.tagName || "").toLowerCase();
+      var kind;
+      if (tag === "textarea") kind = "textarea";
+      else if (tag === "input") kind = (el.type || "text").toLowerCase();
+      else continue;
+
+      if (!SCANNED_TYPES[kind]) continue;
+      if (el.disabled) continue;
+      if (typeof el.value !== "string" || !el.value) continue;
+
+      text += " " + el.value.toLowerCase();
+    }
+
+    return text;
+  }
+
   function checkForSpam(form) {
     // Read the node injectHoneypot created. Looking it up by a fixed id meant a
     // theme or another app rendering an element that collided with it won the
@@ -302,14 +345,7 @@
     }
 
     if (blockedKeywords.length > 0) {
-      var formData = new FormData(form);
-      var formText = "";
-      formData.forEach(function (value, name) {
-        if (name === HONEYPOT_NAME) return;
-        if (typeof value === "string") {
-          formText += " " + value.toLowerCase();
-        }
-      });
+      var formText = visitorText(form);
 
       for (var i = 0; i < blockedKeywords.length; i++) {
         var kw = blockedKeywords[i];
