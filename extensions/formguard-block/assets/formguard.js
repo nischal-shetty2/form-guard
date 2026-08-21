@@ -302,14 +302,7 @@
     }
 
     if (blockedKeywords.length > 0) {
-      var formData = new FormData(form);
-      var formText = "";
-      formData.forEach(function (value, name) {
-        if (name === HONEYPOT_NAME) return;
-        if (typeof value === "string") {
-          formText += " " + value.toLowerCase();
-        }
-      });
+      var formText = visitorText(form);
 
       for (var i = 0; i < blockedKeywords.length; i++) {
         var kw = blockedKeywords[i];
@@ -330,6 +323,53 @@
     }
 
     return null;
+  }
+
+  // Input types the visitor types into. Everything else on a contact form
+  // carries a value the theme chose, not one the customer wrote: select options,
+  // checkbox and radio values, and the submit control's label.
+  var SCANNED_INPUT_TYPES = [
+    "text",
+    "email",
+    "tel",
+    "url",
+    "search",
+    "number",
+  ];
+
+  // Only the text a customer actually typed. Scanning the whole FormData swept
+  // in the theme's hidden inputs too -- form_type and utf8 on every Shopify
+  // contact form, plus whatever a theme adds (shop domain, return_to path, page
+  // handle). A merchant who blocked their own brand name to stop impersonation
+  // spam would then match a hidden value on every real submission and lose the
+  // lot. form.elements rather than a query on the form so a field the theme
+  // renders outside it with form="contact_form" is still read.
+  function visitorText(form) {
+    var fields = form.elements;
+    var text = "";
+
+    for (var i = 0; i < fields.length; i++) {
+      var field = fields[i];
+      if (field === honeypotField) continue;
+      // form.elements includes disabled controls, unlike FormData. Their values
+      // are never submitted, so matching a blocklist against one would block a
+      // message over text the customer never sent.
+      if (field.disabled) continue;
+
+      if (field.tagName === "INPUT") {
+        // An input with no type attribute is a text input.
+        var type = (field.getAttribute("type") || "text").toLowerCase();
+        if (SCANNED_INPUT_TYPES.indexOf(type) === -1) continue;
+      } else if (field.tagName !== "TEXTAREA") {
+        continue;
+      }
+
+      if (typeof field.value === "string" && field.value) {
+        text += " " + field.value.toLowerCase();
+      }
+    }
+
+    return text;
   }
 
   function escapeRegex(str) {
