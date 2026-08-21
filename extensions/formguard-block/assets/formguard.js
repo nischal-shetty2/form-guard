@@ -27,6 +27,9 @@
   var fieldInteractionTime = null;
   var blockedKeywords = [];
   var protectionEnabled = true;
+  // The honeypot input this script created, kept so the submit check reads our
+  // own node instead of looking one up by a selector a theme could also match.
+  var honeypotField = null;
   var proxyUrl = "";
   var initialized = false;
 
@@ -127,13 +130,13 @@
     var input = document.createElement("input");
     input.setAttribute("type", "text");
     input.setAttribute("name", HONEYPOT_NAME);
-    input.setAttribute("id", HONEYPOT_NAME);
     input.setAttribute("autocomplete", "off");
     input.setAttribute("tabindex", "-1");
     input.value = "";
 
     container.appendChild(input);
     form.appendChild(container);
+    honeypotField = input;
   }
 
   // A gesture on the submit control tells us a human is here but nothing about
@@ -234,22 +237,47 @@
   function handleSubmit(e) {
     if (!protectionEnabled) return;
 
-    var spamReason = checkForSpam(e.target);
+    // Fail open. This runs in the capture phase on a real customer's message, so
+    // an unexpected throw here must not be the reason their form misbehaves.
+    // The whole body is wrapped, not just the check: showBlockedMessage and
+    // sendEvent run after preventDefault, and a throw there would leave the
+    // submission blocked with nothing shown and nothing recorded.
+    //
+    // currentTarget, not target: submit events bubble, so a nested form injected
+    // by another script would otherwise be the one we judge.
+    var reported = false;
+    try {
+      var spamReason = checkForSpam(e.currentTarget);
 
-    if (spamReason) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      showBlockedMessage(e.target);
-      sendEvent(true, spamReason);
-      return false;
+      if (spamReason) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        // Record before rendering. The DOM write is the part that can throw, and
+        // a block nobody counted is worse than a block nobody saw.
+        sendEvent(true, spamReason);
+        reported = true;
+        showBlockedMessage(e.currentTarget);
+        return;
+      }
+
+      sendEvent(false, "valid");
+      reported = true;
+    } catch (err) {
+      // Swallowing this would hide a permanently broken check behind a dashboard
+      // that still reports protection as live, so leave a trace in both places.
+      if (typeof console !== "undefined" && console.warn) {
+        console.warn("FormGuard: submit check failed", err);
+      }
+      if (!reported) sendEvent(false, "unknown");
     }
-
-    sendEvent(false, "valid");
   }
 
   function checkForSpam(form) {
-    var honeypot = form.querySelector("#" + HONEYPOT_NAME);
-    if (honeypot && honeypot.value.length > 0) {
+    // Read the node injectHoneypot created. Looking it up by a fixed id meant a
+    // theme or another app rendering an element that collided with it won the
+    // lookup: if that element had no .value we threw on undefined.length, and if
+    // it had one, every real customer's message was discarded as "honeypot".
+    if (honeypotField && honeypotField.value) {
       return "honeypot";
     }
 
