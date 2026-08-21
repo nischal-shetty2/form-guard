@@ -351,6 +351,10 @@
     for (var i = 0; i < fields.length; i++) {
       var field = fields[i];
       if (field === honeypotField) continue;
+      // form.elements includes disabled controls, unlike FormData. Their values
+      // are never submitted, so matching a blocklist against one would block a
+      // message over text the customer never sent.
+      if (field.disabled) continue;
 
       if (field.tagName === "INPUT") {
         // An input with no type attribute is a text input.
