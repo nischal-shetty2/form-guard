@@ -203,13 +203,30 @@
     }
   }
 
+  // Compiled once per keyword list rather than per keyword per submit, which is
+  // what building the RegExp inside the match loop did.
+  function compileKeyword(raw) {
+    var word = String(raw).toLowerCase();
+
+    // A plain alphanumeric word matches on word boundaries, so "cialis" does not
+    // trip on "specialist". Interpolating it into a RegExp needs no escaping:
+    // the /^[a-z0-9]+$/ test is what guarantees there is no metacharacter in it,
+    // so keep the two together if this ever changes.
+    // Anything with symbols matches as a substring instead, since \b is
+    // unreliable around "@", ".", and spaces.
+    var boundaried = /^[a-z0-9]+$/.test(word);
+
+    return {
+      word: word,
+      pattern: boundaried ? new RegExp("\\b" + word + "\\b") : null
+    };
+  }
+
   function applyKeywords(data) {
     if (!data) return;
     protectionEnabled = data.enabled !== false;
     if (Array.isArray(data.keywords)) {
-      blockedKeywords = data.keywords.map(function (k) {
-        return String(k).toLowerCase();
-      });
+      blockedKeywords = data.keywords.map(compileKeyword);
     }
   }
 
@@ -306,18 +323,11 @@
 
       for (var i = 0; i < blockedKeywords.length; i++) {
         var kw = blockedKeywords[i];
-        var matched;
-        if (/^[a-z0-9]+$/.test(kw)) {
-          // Plain word: match on word boundaries so "cialis" doesn't trip on
-          // "specialist".
-          matched = new RegExp("\\b" + escapeRegex(kw) + "\\b").test(formText);
-        } else {
-          // Phrase, email, or anything with symbols: match anywhere, since
-          // word boundaries are unreliable around "@", ".", spaces, etc.
-          matched = formText.indexOf(kw) !== -1;
-        }
+        var matched = kw.pattern
+          ? kw.pattern.test(formText)
+          : formText.indexOf(kw.word) !== -1;
         if (matched) {
-          return "keyword:" + kw;
+          return "keyword:" + kw.word;
         }
       }
     }
@@ -370,10 +380,6 @@
     }
 
     return text;
-  }
-
-  function escapeRegex(str) {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
   function showBlockedMessage(form) {
