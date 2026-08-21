@@ -3,9 +3,20 @@
 Nothing here is tagged. The app deploys from `main` to Fly, so entries stay under
 Unreleased and the section gets dated when it ships.
 
-## Unreleased
+## 2026-08-22
+
+Released as Fly `v20` (server) and app version `formguard-14` (theme extension).
+
+Keyword matching:
+
+- The keyword check ran over every `FormData` entry, which includes the hidden inputs Shopify's contact form always carries (`form_type`, `utf8`) plus whatever the theme adds: shop domain, `return_to` path, page handle. A merchant blocking their own brand name therefore matched a hidden value on every submission and lost every real message. The scan now walks `form.elements` and reads only textareas and the input types a person types into.
+- Disabled controls are skipped too. `form.elements` includes them where `FormData` does not, so their values were scanned despite never being submitted.
+- Matchers are compiled once per keyword list instead of once per keyword per submission, and the unreachable `escapeRegex` is gone.
 
 Storefront detection:
+
+- The honeypot is now the node `injectHoneypot` created, held by reference, rather than a `#fg_check` lookup. A theme or app rendering an element with that id would otherwise either return `honeypot` for every real customer or silently disable the layer. The id is gone, along with the duplicate-id it produced.
+- `handleSubmit` wraps its whole body and fails open. `showBlockedMessage` and `sendEvent` run after `preventDefault`, so a throw there left the submission blocked with no message and no recorded event. A throw now warns and records an event rather than being swallowed behind a dashboard still reporting protection as live.
 
 - Honeypot renamed off `fgphone`. Browser autofill matches field names on substring and ignores `autocomplete="off"` for contact fields, so real customers had the trap filled for them and their message was silently dropped.
 - Submit listener moved to the capture phase, so a theme that AJAX-submits the contact form can no longer beat the check.
