@@ -234,7 +234,15 @@
   function handleSubmit(e) {
     if (!protectionEnabled) return;
 
-    var spamReason = checkForSpam(e.target);
+    // Fail open. This runs in the capture phase on a real customer's message, so
+    // an unexpected throw here must not be the reason their form misbehaves --
+    // letting the submission through is always the safer side to err on.
+    var spamReason;
+    try {
+      spamReason = checkForSpam(e.target);
+    } catch (err) {
+      return;
+    }
 
     if (spamReason) {
       e.preventDefault();
@@ -248,8 +256,11 @@
   }
 
   function checkForSpam(form) {
+    // Checked as a string rather than trusting .value to exist: the id is fixed,
+    // so a theme or another app rendering an element that collides with it would
+    // otherwise throw on undefined.length inside a submit handler.
     var honeypot = form.querySelector("#" + HONEYPOT_NAME);
-    if (honeypot && honeypot.value.length > 0) {
+    if (honeypot && typeof honeypot.value === "string" && honeypot.value) {
       return "honeypot";
     }
 
