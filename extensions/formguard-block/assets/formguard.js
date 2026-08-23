@@ -64,12 +64,6 @@
     fetchKeywords();
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
-
   function findContactForm() {
     var idMatch =
       document.getElementById("contact_form") ||
@@ -422,5 +416,19 @@
     } else {
       new Image().src = url;
     }
+  }
+  // Kick off last, and keep it last. Everything above is either a function
+  // declaration, which hoists whole, or a `var` holding a value, which does not:
+  // the name exists from the top of the IIFE but stays undefined until its
+  // assignment runs. Shopify loads this asset deferred, so at execution time
+  // readyState is already "interactive" and init() runs synchronously right
+  // here. Called any earlier, it reached GESTURE_EVENTS before that line had
+  // run, threw on undefined.length, and returned before attaching the submit
+  // listener or pinging /keywords -- protection silently off, with the console
+  // error as the only sign.
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
   }
 })();
