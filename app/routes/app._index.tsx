@@ -11,6 +11,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { Prisma } from "@prisma/client";
 import prisma from "../db.server";
 import { invalidateShopConfig } from "../shop-config.server";
+import { requestAppReview, reviewPromptAllowed } from "../review-prompt";
 
 // Every keyword is shipped to the storefront on every contact page view, so the
 // list needs a ceiling. 200 is far above any real blocklist and keeps the
@@ -60,6 +61,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const [
     enabledSetting,
     lastSeenSetting,
+    reviewPromptSetting,
     keywords,
     counts,
     spamReasons,
@@ -70,6 +72,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }),
     prisma.setting.findUnique({
       where: { shop_key: { shop, key: "lastSeen" } },
+    }),
+    prisma.setting.findUnique({
+      where: { shop_key: { shop, key: "reviewPrompt" } },
     }),
     prisma.keyword.findMany({
       where: { shop },
@@ -133,6 +138,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // client's own clock, so a merchant whose machine is hours off still reads
   // the same thing the server would have written, and SSR and hydration agree.
   const serverNow = Date.now();
+
+  // Only ask for a review once the dashboard is showing blocked spam. That is
+  // the first moment the merchant has seen the app do the thing they installed
+  // it for, and before it there is nothing to review.
+  const reviewPromptEligible =
+    spamCount > 0 && reviewPromptAllowed(reviewPromptSetting?.value, serverNow);
+
   const recentEvents = recentBlocks.map((event) => {
     const isKeyword = event.reason.startsWith(KEYWORD_PREFIX);
     return {
@@ -155,6 +167,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     topKeywords,
     recentEvents,
     serverNow,
+    reviewPromptEligible,
   };
 };
 
@@ -263,12 +276,34 @@ export const action = async ({
       invalidateShopConfig(shop);
       return { ok: true, intent, message: "Keyword removed" };
     }
+    case "reviewPrompt": {
+      // Records what Shopify did with the last review request. Shopify decides
+      // whether the modal is shown at all, so its response code is the only
+      // record of the outcome, and the loader reads it back to decide whether
+      // asking again is worth it. No merchant-facing message: the modal is the
+      // whole interaction and a toast on top of it would be noise.
+      const code = String(formData.get("code") || "").slice(0, 40);
+      if (!code) {
+        return { ok: false, intent, error: "Missing review prompt outcome." };
+      }
+      const value = `${code}:${Date.now()}`;
+      await prisma.setting.upsert({
+        where: { shop_key: { shop, key: "reviewPrompt" } },
+        update: { value },
+        create: { shop, key: "reviewPrompt", value },
+      });
+      return { ok: true, intent };
+    }
     default:
       return { ok: false, intent, error: "Unknown action." };
   }
 };
 
 const TICK_MS = 60_000;
+
+// Long enough for the merchant to read the numbers before the modal covers
+// them, short enough that they are still on the page.
+const REVIEW_PROMPT_DELAY_MS = 5_000;
 
 /**
  * One timer for the whole page, and a "now" every consumer shares.
@@ -341,9 +376,14 @@ export default function Index() {
     topKeywords,
     recentEvents,
     serverNow,
+    reviewPromptEligible,
   } = useLoaderData<typeof loader>();
   const now = usePageClock(serverNow);
   const fetcher = useFetcher<ActionResult>();
+  // Its own fetcher: the shared one drives `busy`, which disables the controls,
+  // and feeds the toast effect below. A background write has no business doing
+  // either.
+  const reviewFetcher = useFetcher<ActionResult>();
   const shopify = useAppBridge();
   const keywordInputRef = useRef<HTMLInputElement | null>(null);
   const [keywordError, setKeywordError] = useState("");
@@ -388,6 +428,32 @@ export default function Index() {
       shopify.toast.show(result.error, { isError: true });
     }
   }, [fetcher.data, shopify]);
+
+  // Shopify asks that the review modal not interrupt a task and not hang off a
+  // click, since its rate limiting would swallow the request and make the
+  // button look broken. So it fires on its own once the merchant has had a few
+  // seconds with the block report in front of them.
+  const reviewAsked = useRef(false);
+  useEffect(() => {
+    if (!reviewPromptEligible || reviewAsked.current) return;
+
+    let cancelled = false;
+    const id = setTimeout(() => {
+      reviewAsked.current = true;
+      requestAppReview(shopify).then((result) => {
+        if (cancelled || !result) return;
+        reviewFetcher.submit(
+          { intent: "reviewPrompt", code: result.code },
+          { method: "POST" },
+        );
+      });
+    }, REVIEW_PROMPT_DELAY_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(id);
+    };
+  }, [reviewPromptEligible, shopify, reviewFetcher]);
 
   const handleToggle = () => {
     fetcher.submit(

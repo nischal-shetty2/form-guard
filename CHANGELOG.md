@@ -3,6 +3,14 @@
 Nothing here is tagged. The app deploys from `main` to Fly, so entries stay under
 Unreleased and the section gets dated when it ships.
 
+## Unreleased
+
+Review prompt:
+
+- The dashboard asks for an App Store review through App Bridge's Reviews API, five seconds after a load whose block report is not empty. That is the first point the merchant has seen the app do the thing they installed it for, and Shopify asks that the request not hang off a click, where its rate limiting would swallow the call and make the control look broken.
+- Shopify decides whether the modal appears at all, so its response code is the only record of the outcome. It is stored as the `reviewPrompt` setting: `already-reviewed` and `merchant-ineligible` stop the asking for good, every other code waits 90 days, which is well inside Shopify's own floor of a 60 day cooldown and three modals a year.
+- `@shopify/app-bridge-types@0.7.0` predates the Reviews API, so `app/review-prompt.ts` declares the one method it calls and resolves to null when the running App Bridge does not have it.
+
 ## 2026-08-23
 
 Released as Fly `v21` (server). No theme extension change.
