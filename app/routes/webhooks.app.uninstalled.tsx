@@ -12,6 +12,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     db.spamEvent.deleteMany({ where: { shop } }),
     db.keyword.deleteMany({ where: { shop } }),
     db.setting.deleteMany({ where: { shop } }),
+    db.shopContact.deleteMany({ where: { shop } }),
   ]);
 
   // The storefront embed is served from a cached copy of this shop's settings,

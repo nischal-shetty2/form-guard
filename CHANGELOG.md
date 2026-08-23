@@ -3,6 +3,17 @@
 Nothing here is tagged. The app deploys from `main` to Fly, so entries stay under
 Unreleased and the section gets dated when it ships.
 
+## 2026-08-23
+
+Released as Fly `v21` (server). No theme extension change.
+
+Merchant contact:
+
+- New `ShopContact` table, filled from the Admin API on app open with a 30 day TTL. Offline access tokens expire after an hour and their refresh tokens after 90 days, so a shop whose merchant never reopens the app eventually becomes unreachable through the Admin API for good. Nothing recorded who to contact, so the install base was only reachable for as long as its tokens were.
+- The row does not live on `Session`. `PrismaSessionStorage` rewrites that whole row on every token exchange, so a value parked in `Session.email` is lost on the next app open.
+- The capture runs off the `app` route loader and is not awaited, so a slow or failed Admin API call cannot delay or break the dashboard. It logs and returns instead of throwing.
+- Deleted on `app/uninstalled` and on `shop/redact` alongside the rest of the shop's data.
+
 ## 2026-08-22
 
 Released as Fly `v20` (server) and app version `formguard-14` (theme extension).
