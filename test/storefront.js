@@ -264,6 +264,48 @@ async function scenario(name, setup, expected) {
     { reason: "nointeraction", blocked: true }
   );
 
+  // The two time floors. Nothing in production has ever returned "time" across
+  // 747 submissions: anything fast enough to trip one is already caught by the
+  // honeypot, which an indiscriminate fill walks into, or by "nointeraction",
+  // which a script with no trusted gestures walks into. These drive the floors
+  // directly, so a real break in them is told apart from being shadowed.
+  const fast = boot({ fields: withComment("hello"), keywords: [] });
+  await settle();
+  fast.gesture();
+  fast.advance(500); // inside the 2s page-load floor
+  const fastEvent = fast.submit();
+  check(
+    "submit within 2s of page load is too fast",
+    fast.lastReason() === "time" && fastEvent.prevented === true,
+    `got reason=${fast.lastReason()} blocked=${fastEvent.prevented}`
+  );
+
+  const rushed = boot({ fields: withComment("hello"), keywords: [] });
+  await settle();
+  rushed.advance(5000); // clear the page-load floor so the fill floor is the one under test
+  rushed.gesture();
+  rushed.advance(300); // inside the 800ms fill floor
+  const rushedEvent = rushed.submit();
+  check(
+    "submit within 800ms of the first field touch is too fast",
+    rushed.lastReason() === "time" && rushedEvent.prevented === true,
+    `got reason=${rushed.lastReason()} blocked=${rushedEvent.prevented}`
+  );
+
+  // A form the browser restored: the visitor's only gesture is the submit click,
+  // so there is no fill duration to judge and the floor must not apply.
+  const restored = boot({ fields: withComment("hello"), keywords: [] });
+  await settle();
+  restored.advance(5000);
+  restored.gesture("pointerdown", { closest: () => ({}) });
+  restored.advance(100);
+  const restoredEvent = restored.submit();
+  check(
+    "restored form whose only gesture is the submit button skips the fill floor",
+    restored.lastReason() === "valid" && restoredEvent.prevented === false,
+    `got reason=${restored.lastReason()} blocked=${restoredEvent.prevented}`
+  );
+
   // Protection off in the admin means the handler returns before any check.
   const off = boot({ fields: withComment("blabla"), keywords: ["blabla"], enabled: false });
   await settle();
