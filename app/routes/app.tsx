@@ -5,9 +5,16 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
 import { authenticate } from "../shopify.server";
+import { captureShopContact } from "../shop-contact.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
+
+  // Deliberately not awaited. This is the only place a live admin client exists
+  // for an arbitrary shop, so it is where the contact details get recorded, but
+  // the dashboard should not wait on a once-a-month bookkeeping read.
+  // captureShopContact swallows its own errors, so nothing here can reject.
+  void captureShopContact(session.shop, admin.graphql);
 
   return null;
 };

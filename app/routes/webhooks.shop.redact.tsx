@@ -11,6 +11,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   await db.spamEvent.deleteMany({ where: { shop } });
   await db.keyword.deleteMany({ where: { shop } });
   await db.setting.deleteMany({ where: { shop } });
+  await db.shopContact.deleteMany({ where: { shop } });
   invalidateShopConfig(shop);
 
   return new Response();

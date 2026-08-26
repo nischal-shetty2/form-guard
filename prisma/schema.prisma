@@ -64,3 +64,21 @@ model Setting {
 
   @@unique([shop, key])
 }
+
+// The merchant's own contact details, captured from the Admin API on app open.
+// Not part of Session: PrismaSessionStorage rewrites that whole row on every
+// token exchange, so anything parked in Session.email is lost on the next app
+// open. Refreshed on a TTL rather than every load, and deleted on uninstall
+// alongside the rest of the shop's data.
+model ShopContact {
+  shop          String    @id
+  shopName      String?
+  ownerName     String?
+  email         String?
+  contactEmail  String?
+  country       String?
+  plan          String?
+  devStore      Boolean?
+  shopCreatedAt DateTime?
+  updatedAt     DateTime  @updatedAt
+}
