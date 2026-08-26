@@ -11,6 +11,16 @@ Review prompt:
 - Shopify decides whether the modal appears at all, so its response code is the only record of the outcome. It is stored as the `reviewPrompt` setting: `already-reviewed` and `merchant-ineligible` stop the asking for good, every other code waits 90 days, which is well inside Shopify's own floor of a 60 day cooldown and three modals a year.
 - `@shopify/app-bridge-types@0.7.0` predates the Reviews API, so `app/review-prompt.ts` declares the one method it calls and resolves to null when the running App Bridge does not have it.
 
+Keyword safety:
+
+- The Blocked Keywords section warns when the list contains a word real customers write. One shop in production blocks 95% of its contact form traffic, 53 of 56 submissions, on "hello" and "hi", and two more have words like "order" and "free" loaded but not yet triggered. Blocked messages are counted and not stored, so a merchant losing genuine enquiries this way sees a healthy block count and has no way to find out afterwards. Same silent failure as the honeypot field name.
+- The check runs over the whole list rather than only at the moment of adding, so the shops already in this state see the warning. It never refuses a keyword; some merchants really do want to block "offer".
+- Only exact single-word matches warn. "hello there" is specific enough to mean what it says, and real spam tells like `backlinks` and `seo` are left alone.
+
+Timing checks:
+
+- `time` had returned zero blocks across 747 production submissions, so both floors now have tests driving them directly. They fire correctly when reached. The reason nothing reaches them is that `honeypot` and `nointeraction` are checked first and catch the same traffic: an indiscriminate fill walks into the hidden field, and a script with no trusted gestures walks into the gesture check. Reaching `time` needs a bot that skips hidden inputs, dispatches trusted gestures, and still fills faster than 800ms. No behaviour change, the floors stay as cheap insurance against that.
+
 ## 2026-08-23
 
 Released as Fly `v21` (server). No theme extension change.

@@ -12,6 +12,7 @@ import { Prisma } from "@prisma/client";
 import prisma from "../db.server";
 import { invalidateShopConfig } from "../shop-config.server";
 import { requestAppReview, reviewPromptAllowed } from "../review-prompt";
+import { commonWordsIn } from "../common-words";
 
 // Every keyword is shipped to the storefront on every contact page view, so the
 // list needs a ceiling. 200 is far above any real blocklist and keeps the
@@ -402,6 +403,10 @@ export default function Index() {
   // once the loader revalidates, so show the target state while it's in flight.
   const shownEnabled = pendingIntent === "toggle" ? !enabled : enabled;
 
+  // Checked against the whole list rather than only at the moment of adding, so
+  // a shop that already blocks "hello" sees the warning too.
+  const commonKeywords = commonWordsIn(keywords.map((k) => k.word));
+
   useEffect(() => {
     const result = fetcher.data;
     if (!result) return;
@@ -711,6 +716,23 @@ export default function Index() {
           Messages containing these words, phrases, or email addresses will be
           blocked as spam.
         </s-paragraph>
+        {commonKeywords.length > 0 && (
+          <div style={{ marginBottom: "12px" }}>
+            <s-banner tone="warning" heading="Some keywords match normal messages">
+              <s-paragraph>
+                {commonKeywords.length === 1
+                  ? `"${commonKeywords[0]}" is a word real customers write.`
+                  : `${commonKeywords
+                      .map((word) => `"${word}"`)
+                      .join(", ")} are words real customers write.`}{" "}
+                Keywords match whole words, so a genuine enquiry containing one
+                gets blocked and never reaches you. Blocked messages are counted
+                but not kept, so there is no way to tell afterwards which ones
+                were real. Consider a longer phrase instead.
+              </s-paragraph>
+            </s-banner>
+          </div>
+        )}
         <s-stack direction="inline" gap="base" alignItems="end">
           <s-text-field
             ref={keywordInputRef as never}
