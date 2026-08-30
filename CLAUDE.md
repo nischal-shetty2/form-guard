@@ -34,6 +34,7 @@ npx eslint --ignore-path .gitignore app extensions
 npm run build
 node --check extensions/formguard-block/assets/formguard.js
 npm run test:storefront
+npm run test:webhooks
 ```
 
 The storefront script is plain ES5 in a `<script>` tag, not part of the bundle, so nothing type-checks it and `node --check` only proves it parses.
@@ -41,6 +42,8 @@ The storefront script is plain ES5 in a `<script>` tag, not part of the bundle, 
 `npm run test:storefront` is the one that matters. It runs the real asset in a stubbed DOM and drives it the way a browser does: evaluate, find the form, dispatch gestures, submit, then assert on the reason it reports. Run it on every change to `formguard.js`, and pass a path to check a specific build (`node test/storefront.js /tmp/served.js` against what the CDN is actually serving).
 
 It exists because `node --check`, eslint, and unit tests of functions extracted from the file all passed while detection was completely dead in production for two releases. Nothing that inspects the file rather than running it can catch a throw at script level.
+
+`npm run test:webhooks` drives `app/webhook-auth.server.ts` with signed, tampered and unsigned requests. It is the only check on the code that decides whether a POST from the open internet may delete a shop's data. It needs a Node with TypeScript type stripping (22.18+ or 23.6+); the script passes `--experimental-strip-types` so 22.12+ works too.
 
 ## Deploy
 
@@ -77,4 +80,5 @@ curl -sL https://<shop>.myshopify.com/ | grep -oE '[^"]*formguard[^"]*\.js[^"]*'
 - **React 18 drops unrecognised function props on custom elements.** `onRemove` on a Polaris web component typechecks and never fires. Assign the element's own `onremove` through a ref. Revisit when this moves to React 19, where setting both would double-fire.
 - **SQLite on a single Fly volume.** Scaling past one machine breaks the shop-config cache invalidation and splits the database. The 60s TTL is the only backstop.
 - **`prisma generate` must stay after `npm prune` in the Dockerfile.** The prune can take the generated client with it, which is why it used to run on every boot.
+- **`authenticate.webhook()` refreshes the offline token before it returns.** With `expiringOfflineAccessTokens` on, an expired token is refreshed inside that call, and for `app/uninstalled` and `shop/redact` the app is already gone, so Shopify answers `401 invalid_request` and the library rethrows it as a 500. The handler body never runs, Shopify marks the delivery failed, and every retry fails the same way, so the shop's rows are never deleted. Those routes verify the HMAC themselves through `app/webhook-auth.server.ts` instead. Keep them off `authenticate.webhook` unless a route genuinely needs an `admin` client, and cover any change with `npm run test:webhooks`.
 - **`init()` has to be the last thing in `formguard.js`.** `var` hoists the name but not the value, and the asset is served deferred, so it executes at readyState `interactive` and runs `init()` synchronously. Called above a `var` it depends on, it throws on `undefined` before attaching the submit listener: protection silently off, dashboard reporting "haven't detected your contact form yet", and a console error as the only clue. This has now happened twice, with `HONEYPOT_NAME` and `GESTURE_EVENTS`.
