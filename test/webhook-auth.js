@@ -18,6 +18,19 @@ process.env.SHOPIFY_API_SECRET = SECRET;
 const SHOP = "example-shop.myshopify.com";
 const TOPIC = "app/uninstalled";
 
+// The classic delivery headers, and the unprefixed set the events delivery
+// format uses. Both have to be accepted, and both sign the body the same way.
+const CLASSIC = {
+  hmac: "X-Shopify-Hmac-Sha256",
+  shop: "X-Shopify-Shop-Domain",
+  topic: "X-Shopify-Topic",
+};
+const EVENTS = {
+  hmac: "shopify-hmac-sha256",
+  shop: "shopify-shop-domain",
+  topic: "shopify-topic",
+};
+
 function sign(body, secret = SECRET) {
   return createHmac("sha256", secret).update(body).digest("base64");
 }
@@ -28,15 +41,16 @@ function webhookRequest({
   shop = SHOP,
   topic = TOPIC,
   method = "POST",
+  names = CLASSIC,
   omit = [],
 } = {}) {
   const headers = new Headers();
-  const set = (name, value) => {
-    if (!omit.includes(name) && value !== undefined) headers.set(name, value);
+  const set = (key, value) => {
+    if (!omit.includes(key) && value !== undefined) headers.set(names[key], value);
   };
-  set("X-Shopify-Hmac-Sha256", signature ?? sign(body));
-  set("X-Shopify-Shop-Domain", shop);
-  set("X-Shopify-Topic", topic);
+  set("hmac", signature ?? sign(body));
+  set("shop", shop);
+  set("topic", topic);
   return new Request("https://example.com/webhooks/app/uninstalled", {
     method,
     headers,
@@ -115,21 +129,23 @@ await expectStatus(
   401,
 );
 
+// Shopify requires 401, not 400, when a compliance webhook arrives without a
+// usable HMAC header. App review posts exactly this request.
 await expectStatus(
-  "an unsigned request is rejected",
-  webhookRequest({ body, omit: ["X-Shopify-Hmac-Sha256"] }),
-  400,
+  "an unsigned request is rejected with 401",
+  webhookRequest({ body, omit: ["hmac"] }),
+  401,
 );
 
 await expectStatus(
   "a request with no shop domain is rejected",
-  webhookRequest({ body, omit: ["X-Shopify-Shop-Domain"] }),
+  webhookRequest({ body, omit: ["shop"] }),
   400,
 );
 
 await expectStatus(
   "a request with no topic is rejected",
-  webhookRequest({ body, omit: ["X-Shopify-Topic"] }),
+  webhookRequest({ body, omit: ["topic"] }),
   400,
 );
 
@@ -151,6 +167,23 @@ await expectStatus(
   "a body that is not JSON is rejected",
   webhookRequest({ body: "not json" }),
   400,
+);
+
+// shopify-api accepts either header family, so this module has to as well.
+await expectAccepted(
+  "a webhook using the events header names is accepted",
+  webhookRequest({ body, names: EVENTS }),
+  { shop: SHOP, topic: TOPIC, payload: { shop_domain: SHOP, foo: "bar" } },
+);
+
+await expectStatus(
+  "a tampered events-format webhook is rejected",
+  webhookRequest({
+    body: body.replace("bar", "baz"),
+    signature: sign(body),
+    names: EVENTS,
+  }),
+  401,
 );
 
 if (failures > 0) {

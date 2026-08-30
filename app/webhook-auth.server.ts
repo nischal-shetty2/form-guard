@@ -29,6 +29,24 @@ export type WebhookContext = {
 // already proves Shopify sent it.
 const SHOP_DOMAIN = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/;
 
+// Two header families are in circulation: the classic `X-Shopify-*` set, and
+// the unprefixed `shopify-*` set the newer events delivery format uses. Both
+// sign the raw body identically, and shopify-api accepts either, so dropping
+// one here would mean a subscription that moves format starts failing every
+// delivery forever, which is the failure this module exists to avoid.
+const HEADER_SETS = [
+  {
+    hmac: "X-Shopify-Hmac-Sha256",
+    shop: "X-Shopify-Shop-Domain",
+    topic: "X-Shopify-Topic",
+  },
+  {
+    hmac: "shopify-hmac-sha256",
+    shop: "shopify-shop-domain",
+    topic: "shopify-topic",
+  },
+] as const;
+
 function reject(status: number, statusText: string): never {
   throw new Response(undefined, { status, statusText });
 }
@@ -48,10 +66,20 @@ export async function authenticateWebhook(
     throw new Error("SHOPIFY_API_SECRET is not set, cannot verify webhooks");
   }
 
-  const signature = request.headers.get("X-Shopify-Hmac-Sha256");
-  const shop = request.headers.get("X-Shopify-Shop-Domain");
-  const topic = request.headers.get("X-Shopify-Topic");
-  if (!signature || !shop || !topic) {
+  const headers =
+    HEADER_SETS.find((set) => request.headers.has(set.hmac)) ?? HEADER_SETS[0];
+
+  const signature = request.headers.get(headers.hmac);
+  if (!signature) {
+    // 401 rather than 400: Shopify requires that status for a compliance
+    // webhook carrying an invalid HMAC header, and no header at all is the
+    // degenerate case of invalid. App review sends exactly that request.
+    reject(401, "Unauthorized");
+  }
+
+  const shop = request.headers.get(headers.shop);
+  const topic = request.headers.get(headers.topic);
+  if (!shop || !topic) {
     reject(400, "Bad Request");
   }
 
