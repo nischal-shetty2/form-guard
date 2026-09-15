@@ -15,6 +15,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     db.spamEvent.deleteMany({ where: { shop } }),
     db.keyword.deleteMany({ where: { shop } }),
     db.setting.deleteMany({ where: { shop } }),
+    db.shopContact.deleteMany({ where: { shop } }),
     db.session.deleteMany({ where: { shop } }),
   ]);
   invalidateShopConfig(shop);
