@@ -19,7 +19,8 @@
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
     "typecheck": "react-router typegen && tsc --noEmit",
-    "test:storefront": "node test/storefront.js"
+    "test:storefront": "node test/storefront.js",
+    "test:webhooks": "node --experimental-strip-types test/webhook-auth.js"
   },
   "type": "module",
   "engines": {
